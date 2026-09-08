@@ -14,7 +14,7 @@ export function initGraphViz(root, seed) {
   const MEAS = seed.measured || [];
   const TODAY = seed.todayMs || Date.UTC(2026,7,9);
 
-  const PER = [
+  const PER_ALL = [
     {id:'A', titre:'Août 2026', t0:Date.UTC(2026,7,1), t1:Date.UTC(2026,8,1), daily:true,
      note:'jour par jour · routine actuelle', app:1900, def:500,
      acts:[{n:'Vélo elliptique 40 min',k:450,j:7},{n:'Musculation',k:160,j:0}]},
@@ -32,7 +32,7 @@ export function initGraphViz(root, seed) {
     if (typeof seed.saved.adapt === 'boolean') adapt = seed.saved.adapt;
     if (Array.isArray(seed.saved.periods)) {
       for (const sp of seed.saved.periods) {
-        const P = PER.find(x => x.id === sp.id);
+        const P = PER_ALL.find(x => x.id === sp.id);
         if (P) {
           if (typeof sp.def === 'number') P.def = sp.def;
           if (typeof sp.app === 'number') P.app = sp.app;
@@ -41,9 +41,14 @@ export function initGraphViz(root, seed) {
       }
     }
   }
+  /* Périodes affichées : on masque celles entièrement passées (leur fin est
+     derrière nous) — il n'y a plus rien à y projeter, le réel a pris le relais.
+     PER_ALL reste la référence pour la sauvegarde, pour ne rien perdre. */
+  const PER = PER_ALL.filter(p => p.t1 > TODAY);
+
   function saveState() {
     if (typeof seed.onSave !== 'function') return;
-    seed.onSave({ mode, adapt, periods: PER.map(p => ({ id: p.id, def: p.def, app: p.app, acts: p.acts.map(a => ({ n: a.n, k: a.k, j: a.j })) })) });
+    seed.onSave({ mode, adapt, periods: PER_ALL.map(p => ({ id: p.id, def: p.def, app: p.app, acts: p.acts.map(a => ({ n: a.n, k: a.k, j: a.j })) })) });
   }
 
   root.innerHTML = `<div class="wrap">
@@ -57,7 +62,7 @@ export function initGraphViz(root, seed) {
 <div id="waterBanner"></div>
 </section>
 <h2 style="margin:30px 0 2px">Prévisionnel</h2>
-<p class="sub">À partir de ta dernière pesée : <strong>${W0.toFixed(2).replace('.',',')} kg · ${F0.toFixed(1).replace('.',',')} kg de masse grasse (${(F0/W0*100).toFixed(1).replace('.',',')} %)</strong>. Trois périodes indépendantes — chacune a ses activités et son apport, et repart de l'état atteint à la fin de la précédente.</p>
+<p class="sub">À partir de ta dernière pesée : <strong>${W0.toFixed(2).replace('.',',')} kg · ${F0.toFixed(1).replace('.',',')} kg de masse grasse (${(F0/W0*100).toFixed(1).replace('.',',')} %)</strong>. ${PER.length === 0 ? `Toutes les périodes prévues sont désormais passées — il n'y a plus rien à projeter` : PER.length > 1 ? `${PER.length} périodes indépendantes — chacune a ses activités et son apport, et repart de l'état atteint à la fin de la précédente. Les périodes déjà écoulées ne sont plus affichées : le réel a pris le relais` : `Une seule période à venir, avec ses activités et son apport. Les périodes déjà écoulées ne sont plus affichées : le réel a pris le relais`}.</p>
 <p class="ctl" style="margin:0 0 20px;flex-wrap:wrap">
 <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chkAdapt" checked> Thermogenèse adaptative (12 % du déficit)</label>
 <span style="margin-left:20px">Je choisis <span class="seg" id="segMode" style="display:inline-flex;vertical-align:middle"></span></span></p>
