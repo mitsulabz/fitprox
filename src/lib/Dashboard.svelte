@@ -169,6 +169,19 @@
       startW: start.w, nowW: now.w, startFat: start.fat, nowFat: now.fat,
     };
   });
+  /* Part d'énergie qui vient réellement du gras, CALIBRÉE sur tes pesées + %MG
+     (et non sur une formule théorique liée aux protéines, qui ignorait le sport
+     et surestimait la perte de muscle). Bornée : une mesure d'impédancemétrie
+     bruitée ne doit pas produire une part aberrante. */
+  const FAT_FRAC_DEFAULT = 0.85;
+  const fatFracMeasured = $derived.by(() => {
+    if (!fatLost) return FAT_FRAC_DEFAULT;
+    const fatE = fatLost.fatLostKg * 7700;      // énergie venue du gras
+    const leanE = fatLost.leanChangeKg * 1850;  // < 0 si masse maigre gagnée
+    const totE = fatE + leanE;
+    if (!(fatE > 0) || !(totE > 0)) return FAT_FRAC_DEFAULT;
+    return Math.max(0.70, Math.min(1, fatE / totE));
+  });
   // %MG projetée au 1er novembre — même méthode MESURÉE que la cellule de projection
   const bfProjected = $derived.by(() => {
     if (!fatLost || !(progStats.expectedSoFar > 0 && progStats.totalCible > 0)) return null;
@@ -221,28 +234,18 @@
       const adaptation = rec ? rec.adaptation : 0;
       const deficit = hasFood ? (rec ? rec.deficit : null) : null; // null si rien loggé
       const neutre = deficit !== null && Math.abs(deficit) <= 50; // neutre = mange ~ depense
-      // detail des grammes perdus/pris ce jour (meme modele que les cellules kg perdus)
-      // signe : negatif = perdu, positif = pris
-      let gMuscle: number | null = null, gFat: number | null = null, gWater: number | null = null;
+      /* Grammes de gras du jour, via la part mesurée sur TES pesées + %MG.
+         Pas de découpage muscle/eau : sur une seule journée il n'est pas mesurable,
+         et l'ancienne formule pénalisait les jours d'entraînement (plus de sport
+         = plus gros déficit = plus de "muscle perdu", ce qui est l'inverse du réel).
+         signe : négatif = perdu, positif = pris */
+      let gFat: number | null = null;
       if (deficit !== null) {
-        if (deficit > 0) {
-          // perte : part gras (proteines) + part masse maigre (muscle vs eau)
-          const pTargetDay = 1.6 * (curBody.w || 100);
-          const ratio = pTargetDay > 0 ? Math.max(0, Math.min(1, sp / pTargetDay)) : 1;
-          const fatFrac = 0.70 + 0.20 * ratio;
-          const leanG = deficit * (1 - fatFrac) / 1850 * 1000;
-          const muscleFrac = 0.20 + 0.40 * (1 - ratio);
-          gFat = -Math.round(deficit * fatFrac / 7700 * 1000);
-          gMuscle = -Math.round(leanG * muscleFrac);
-          gWater = -Math.round(leanG * (1 - muscleFrac));
-        } else {
-          // prise : le durable = gras. L'eau/glycogene est transitoire, on ne la compte pas.
-          gFat = Math.round(-deficit / 7700 * 1000);
-          gWater = 0;
-          gMuscle = 0;
-        }
+        gFat = deficit > 0
+          ? -Math.round(deficit * fatFracMeasured / 7700 * 1000)
+          : Math.round(-deficit / 7700 * 1000);
       }
-      result.push({ key, label, jNum, foods, total, expend, adaptation, extraKcal, p: sp, g: sg, l: sl, deficit, neutre, gMuscle, gFat, gWater });
+      result.push({ key, label, jNum, foods, total, expend, adaptation, extraKcal, p: sp, g: sg, l: sl, deficit, neutre, gFat });
     }
     return result;
   });
@@ -251,7 +254,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V13.4";
+  const BUILD = "V13.5";
   const dateLabel = $derived((() => { const s = todayDate.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' }); return s.charAt(0).toUpperCase() + s.slice(1); })());
 
   let showModal = $state(false);
@@ -546,7 +549,7 @@
         {/if}
       </div>
       {#if day.foods.length}
-      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{#if day.deficit !== null} · <span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:var(--c-green)">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span>{#if day.gMuscle !== 0} · <span style="color:var(--c-red)">{day.gMuscle < 0 ? '−' : '+'}{Math.abs(day.gMuscle)}g muscle</span>{/if}{#if day.gWater !== 0} · <span style="color:var(--c-blue)">{day.gWater < 0 ? '−' : '+'}{Math.abs(day.gWater)}g eau</span>{/if}</span>{/if}{/if}</div>
+      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{#if day.deficit !== null} · <span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:var(--c-green)">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}</div>
       {/if}
     </summary>
     <div class="hist-foods">
