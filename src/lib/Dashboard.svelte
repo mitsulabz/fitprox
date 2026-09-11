@@ -254,7 +254,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V13.7";
+  const BUILD = "V13.8";
   const dateLabel = $derived((() => { const s = todayDate.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' }); return s.charAt(0).toUpperCase() + s.slice(1); })());
 
   let showModal = $state(false);
@@ -549,7 +549,7 @@
         {/if}
       </div>
       {#if day.foods.length}
-      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{#if day.deficit !== null} · <span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:var(--c-green)">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}</div>
+      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{#if day.deficit !== null} · <span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:{day.gFat > 0 ? 'var(--c-red)' : 'var(--c-green)'}">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}</div>
       {/if}
     </summary>
     <div class="hist-foods">
