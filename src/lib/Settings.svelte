@@ -124,23 +124,45 @@
     const tl = buildTimeline({ dateList, settingsLog: effectiveLog(data), todayTime: todayMs, dayFrac: 1, info });
     return recalibrate(tl);
   });
-  async function saveBase(baseRef: any, poidsRef: any, adaptCoef: any) {
+  const J1_DS = '22/06/2026'; // début du régime
+
+  /* Date d'effet : aujourd'hui par défaut (le passé reste figé).
+     Avec allHistory, on remplace TOUT le journal par une seule entrée datée du J1.
+     Ce cas sert quand la base précédente n'était pas une mesure mais une valeur
+     de départ arbitraire : la figer perpétuerait l'erreur au lieu de la corriger. */
+  async function saveBase(baseRef: any, poidsRef: any, adaptCoef: any, allHistory = false) {
     const s = $session; const data = $appData as any;
     if (!s || !data) return;
+    const fromDs = allHistory ? J1_DS : todayDs;
     baseStatus = 'Sauvegarde…';
     const prog = data.programme ?? {};
-    let log = Array.isArray(prog.settingsLog) ? [...prog.settingsLog] : [];
-    if (!log.length) log = effectiveLog(data).slice(); // fige le passé avec la base initiale
-    log = log.filter((e: any) => e.from !== todayDs);
-    log.push({ from: todayDs, baseRef: Math.round(nf(baseRef)), poidsRef: +nf(poidsRef).toFixed(2), adaptCoef: Math.max(0, Math.min(0.15, nf(adaptCoef) || ADAPT_DEFAULT)) });
+    let log: any[] = [];
+    if (!allHistory) {
+      log = Array.isArray(prog.settingsLog) ? [...prog.settingsLog] : [];
+      if (!log.length) log = effectiveLog(data).slice(); // fige le passé avec la base initiale
+      log = log.filter((e: any) => e.from !== fromDs);
+    }
+    log.push({ from: fromDs, baseRef: Math.round(nf(baseRef)), poidsRef: +nf(poidsRef).toFixed(2), adaptCoef: Math.max(0, Math.min(0.15, nf(adaptCoef))) });
     log.sort((a: any, b: any) => dsToMs(a.from) - dsToMs(b.from));
     const newData = { ...data, programme: { ...prog, settingsLog: log } };
     appData.set(newData);
-    try { await saveAppState(s.access_token, s.user.id, newData); baseStatus = '\u2713 Base enregistr\u00e9e (d\u00e8s aujourd\u2019hui)'; }
-    catch { baseStatus = 'Erreur de sauvegarde'; }
+    try {
+      await saveAppState(s.access_token, s.user.id, newData);
+      baseStatus = allHistory ? '\u2713 Base appliqu\u00e9e \u00e0 tout l\u2019historique' : '\u2713 Base enregistr\u00e9e (d\u00e8s aujourd\u2019hui)';
+    } catch { baseStatus = 'Erreur de sauvegarde'; }
     setTimeout(() => baseStatus = '', 2600);
   }
   function saveBaseForm() { saveBase(baseForm.baseRef, baseForm.poidsRef, baseForm.adaptCoef); }
+  function saveBaseAll() {
+    const b = Math.round(nf(baseForm.baseRef));
+    if (!confirm(`Appliquer ${b} kcal/j à TOUT ton historique depuis le ${J1_DS} ?
+
+Les déficits de tous tes jours passés seront recalculés, et les réglages datés précédents remplacés.
+
+À n'utiliser que si la base précédente était une estimation, pas une mesure.`)) return;
+    saveBase(baseForm.baseRef, baseForm.poidsRef, baseForm.adaptCoef, true);
+  }
+
   function applyRecalib() { if (recalib && (recalib as any).ok) { const r: any = recalib; baseForm = { ...baseForm, baseRef: String(r.baseRef), poidsRef: String(r.poidsRef) }; saveBase(r.baseRef, r.poidsRef, baseForm.adaptCoef); } }
 
   function triggerImport() { fileInput.click(); }
@@ -213,7 +235,7 @@
     <label class="pf-row"><span>Base mesurée (kcal/j)</span><input type="number" inputmode="numeric" step="10" bind:value={baseForm.baseRef} /></label>
     <label class="pf-row"><span>Poids de réf. (kg)</span><input type="number" inputmode="decimal" step="0.1" bind:value={baseForm.poidsRef} /></label>
     <label class="pf-row"><span>Adaptation (0–0,15)</span><input type="number" inputmode="decimal" step="0.01" bind:value={baseForm.adaptCoef} /></label>
-    <p class="pf-hint">Dépense hors sport à ce poids de référence (mesurée par bilan énergétique). Elle varie ensuite de −12 kcal par kg perdu. Enregistrer applique la valeur À PARTIR D'AUJOURD'HUI — le passé n'est jamais recalculé.</p>
+    <p class="pf-hint">Dépense hors sport à ce poids de référence (mesurée par bilan énergétique). Elle varie ensuite de −12 kcal par kg perdu.<br/><b>Adaptation</b> : à laisser à 0 si la base vient du recalibrage — une base mesurée contient déjà le ralentissement métabolique, la retrancher une 2ᵉ fois le compterait en double.</p>
     {#if recalib && recalib.ok}
       <div class="recalib-banner">📏 Base mesurée sur {recalib.days} j : <b>{recalib.baseRef}</b> kcal · poids réf {String(recalib.poidsRef).replace('.', ',')} kg · perte {String(recalib.perteMM7).replace('.', ',')} kg
         <button class="recalib-btn" onclick={applyRecalib}>Appliquer</button></div>
@@ -221,6 +243,8 @@
       <p class="pf-hint">Recalibrage indispo : {recalib.reason}.</p>
     {/if}
     <button class="card save-btn" onclick={saveBaseForm}>Enregistrer la base (dès aujourd'hui)</button>
+    <button class="card save-btn alt-btn" onclick={saveBaseAll}>Appliquer aussi au passé (depuis le J1)</button>
+    <p class="pf-hint">« Dès aujourd'hui » fige le passé : à utiliser quand l'ancienne base était juste à l'époque. « Aussi au passé » recalcule tout l'historique : à utiliser quand l'ancienne base était une estimation de départ, jamais mesurée.</p>
     {#if baseStatus}<div class="import-status" class:success={baseStatus.startsWith('✓')}>{baseStatus}</div>{/if}
   </div>
 
@@ -267,7 +291,7 @@
     </button>
   </div>
 
-  <div class="version caption">FitProX · V13.6</div>
+  <div class="version caption">FitProX · V13.7</div>
 </div>
 
 <style>
@@ -293,4 +317,5 @@
 .pf-row input, .pf-row select { width:110px; padding:6px 8px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text); font-size:14px; text-align:right; font-family:var(--font); }
 .pf-row input:focus, .pf-row select:focus { outline:none; border-color:var(--c-accent); }
 .save-btn { text-align:center; justify-content:center; padding:12px; background:var(--c-accent); color:var(--c-accent-fg); border:none; font-size:14px; font-weight:600; cursor:pointer; font-family:var(--font); border-radius:var(--r-md); }
+.alt-btn { background:transparent; color:var(--c-accent); border:1px solid var(--c-accent); margin-top:6px; }
 </style>
