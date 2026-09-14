@@ -53,7 +53,7 @@ function favMergeKey(f: any) { return ((f?.name ?? '') + '').trim().toLowerCase(
 
 // Fusionne l'état cloud (autre appareil) et l'état local (édition en cours).
 // Le local gagne sur le profil, les réglages et les jours qu'il connaît ;
-// les jours et favoris ajoutés ailleurs sont conservés.
+// les jours, favoris et aliments masqués ajoutés ailleurs sont conservés.
 export function mergeStates(cloud: any, local: any): any {
   if (!cloud) return local;
   const days = { ...(cloud.days ?? {}), ...(local.days ?? {}) };
@@ -62,7 +62,53 @@ export function mergeStates(cloud: any, local: any): any {
   (Array.isArray(cloud.favorites) ? cloud.favorites : []).forEach((f: any) => {
     if (!seen.has(favMergeKey(f))) favs.push(f);
   });
-  return { ...cloud, ...local, days, favorites: favs };
+  const hiddenFoods = [...new Set([
+    ...(Array.isArray(cloud.hiddenFoods) ? cloud.hiddenFoods : []),
+    ...(Array.isArray(local.hiddenFoods) ? local.hiddenFoods : []),
+  ])];
+  return { ...cloud, ...local, days, favorites: favs, hiddenFoods };
+}
+
+// ---- Catalogue d'aliments partagé (table shared_foods, cf. supabase_shared_foods.sql) ----
+// Supabase plafonne à 1000 lignes par requête : largement suffisant pour ce catalogue.
+const SHARED_FOODS_COLS = 'id,name,per,kcal,p,g,l,fi,sel,created_by';
+
+// null si la table n'existe pas encore (404 PGRST205), hors-ligne ou jeton refusé :
+// l'app retombe alors sur les seuls favoris personnels.
+export async function loadSharedFoods(token: string): Promise<any[] | null> {
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/shared_foods?select=${SHARED_FOODS_COLS}&order=name.asc`,
+      { headers: headers(token) }
+    );
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return Array.isArray(rows) ? rows : null;
+  } catch { return null; }
+}
+
+// Insertion en lot ; un aliment déjà présent (même nom + même base) est ignoré.
+export async function shareFoods(token: string, rows: any[]): Promise<boolean> {
+  if (!rows.length) return true;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/shared_foods?on_conflict=name_key,per`, {
+      method: 'POST',
+      headers: { ...headers(token), 'Prefer': 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify(rows),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+// La base n'autorise la suppression qu'à l'auteur (RLS) : pour un autre, 0 ligne supprimée.
+export async function deleteSharedFood(token: string, id: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/shared_foods?id=eq.${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { ...headers(token), 'Prefer': 'return=minimal' },
+    });
+    return r.ok;
+  } catch { return false; }
 }
 
 async function loadRaw(token: string, userId: string): Promise<any | null> {

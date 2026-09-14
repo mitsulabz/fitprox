@@ -2,6 +2,7 @@
   import { theme, activeTab, session, authLoading, appData, persistSession, restoreSession, t } from "./lib/store";
   import { loadAppState, saveAppState, refreshToken, upsertProfile, retryPendingSave } from "./lib/supabase";
   import { migrateSportV13, trimPreJ1 } from "./lib/migrate";
+  import { refreshSharedFoods } from "./lib/sharedFoods";
   import AuthGate from "./lib/AuthGate.svelte";
   import BottomNav from "./lib/BottomNav.svelte";
   import Dashboard from "./lib/Dashboard.svelte";
@@ -20,6 +21,7 @@
     const t2 = trimPreJ1(m.data);
     appData.set(t2.data);
     if (m.changed || t2.changed) saveAppState(s.access_token, s.user.id, t2.data);
+    refreshSharedFoods(s.access_token); // catalogue d'aliments commun (null si table absente)
   }
 
   async function loadData(s: typeof $session) {

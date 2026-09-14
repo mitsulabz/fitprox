@@ -30,6 +30,10 @@ export const authLoading = writable(true);
 // App data (état complet : jours, profil, favoris, réglages)
 export const appData = writable<Record<string, unknown> | null>(null);
 
+// Catalogue d'aliments partagé entre tous les utilisateurs (table shared_foods).
+// null = indisponible (table pas encore créée, hors-ligne) -> favoris personnels seuls.
+export const sharedFoods = writable<any[] | null>(null);
+
 // Persist session in localStorage
 export function persistSession(s: Session | null) {
   if (s) localStorage.setItem('fitpro_session', JSON.stringify(s));

@@ -1,6 +1,9 @@
 <script lang="ts">
-  import { appData, session, persistSession } from './store';
+  import { onMount } from 'svelte';
+  import { appData, session, persistSession, sharedFoods } from './store';
   import { saveAppState, refreshToken } from './supabase';
+  import { refreshSharedFoods, publishFoods } from './sharedFoods';
+  import { buildCatalog, foodKey } from './foods';
   import { get } from 'svelte/store';
 
 
@@ -53,14 +56,15 @@
   let scanQty = $state(100);
   let scanError = $state('');
 
-  const favorites = $derived(
-    [...(Array.isArray(($appData as any)?.favorites) ? ($appData as any).favorites : [])]
-      .sort((a: any, b: any) => (a.name ?? '').localeCompare(b.name ?? '', 'fr'))
-  );
+  // Catalogue = aliments partagés par tous ∪ mes favoris, moins ceux que j'ai masqués
+  const favorites = $derived(buildCatalog({
+    shared: $sharedFoods,
+    personal: ($appData as any)?.favorites,
+    hidden: ($appData as any)?.hiddenFoods,
+    myId: $session?.user?.id ?? '',
+  }));
 
-  function favKey(name: string, per: string) {
-    return (name ?? '').trim().toLowerCase() + '|' + (per ?? '100');
-  }
+  onMount(() => { refreshSharedFoods(); });
 
   async function commitFood(food: Food, closeAfter = true, skipFav = false) {
     const s = get(session);
@@ -72,12 +76,14 @@
     const foods = Array.isArray(day.foods) ? [...day.foods] : [];
     foods.push({ n: food.n, k: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1) });
 
-    // Auto-add to favorites (sauf si l'aliment vient déjà des favoris)
+    // Auto-ajout aux favoris (sauf si l'aliment vient déjà de la liste)
     const favs: any[] = Array.isArray(data.favorites) ? [...data.favorites] : [];
+    let newFav: any = null;
     if (!skipFav) {
-      const key = favKey(food.n, '100');
-      if (!favs.some((f: any) => favKey(f.name, f.per) === key)) {
-        favs.unshift({ name: food.n, per: '100', kcal: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1), img: '' });
+      const key = foodKey(food.n, '100');
+      if (!favs.some((f: any) => foodKey(f.name, f.per) === key)) {
+        newFav = { name: food.n, per: '100', kcal: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1), img: '' };
+        favs.unshift(newFav);
       }
     }
 
@@ -88,6 +94,9 @@
     try { const fresh = await refreshToken(s.refresh_token); token = fresh.access_token; } catch {}
     await saveAppState(token, s.user.id, newData);
     appData.set(newData); // re-affirme l'etat local au cas ou
+    // Nouvel aliment -> catalogue partagé, sans bloquer (ignoré si doublon ; si la table
+    // est indisponible, il reste en favori perso et sera proposé au partage plus tard)
+    if (newFav && get(sharedFoods) !== null) publishFoods([newFav], token);
     if (closeAfter) onclose();
   }
 
@@ -178,12 +187,15 @@
     <div class="tabs">
       <button class:active={tab === 'search'}    onclick={() => tab = 'search'}>Recherche</button>
       <button class:active={tab === 'scan'}      onclick={() => tab = 'scan'}>Scan</button>
-      <button class:active={tab === 'favorites'} onclick={() => tab = 'favorites'}>Favoris</button>
+      <button class:active={tab === 'favorites'} onclick={() => tab = 'favorites'}>Aliments</button>
       <button class:active={tab === 'manual'}    onclick={() => tab = 'manual'}>Manuel</button>
       <button class:active={tab === 'ai'}        onclick={() => tab = 'ai'}>IA</button>
     </div>
 
     <div class="modal-body">
+      {#if $sharedFoods !== null && tab !== 'favorites'}
+        <p class="hint" style="font-size:12px;color:var(--c-text3)">🌍 Les nouveaux aliments que tu ajoutes sont partagés avec tous les utilisateurs de FitProX.</p>
+      {/if}
 
       {#if tab === 'search'}
         <form class="search-bar" onsubmit={(e) => { e.preventDefault(); searchOFF(); }}>
@@ -255,15 +267,15 @@
 
       {:else if tab === 'favorites'}
         {#if favorites.length === 0}
-          <div class="empty">Aucun favori. Ajoute des aliments via Recherche, Scan ou IA.</div>
+          <div class="empty">Aucun aliment. Ajoute-en via Recherche, Scan, Manuel ou IA.</div>
         {:else}
           {@const filtered = favorites.filter((f: any) => favNorm(f.name).includes(favNorm(favFilter)))}
-          <input class="fav-filter" type="text" placeholder="Filtrer les favoris…"
+          <input class="fav-filter" type="text" placeholder="Filtrer les aliments…"
             bind:value={favFilter} autocomplete="off" autocorrect="off" spellcheck="false" />
           {#if filtered.length === 0}
-            <div class="empty">Aucun favori ne correspond à « {favFilter} ».</div>
+            <div class="empty">Aucun aliment ne correspond à « {favFilter} ».</div>
           {/if}
-          {#each filtered as fav (fav.name + '|' + (fav.per ?? '100'))}
+          {#each filtered as fav (fav.key)}
             <div class="food-row">
               <div class="food-info">
                 <span class="food-name">{fav.name}</span>
@@ -271,11 +283,11 @@
               </div>
               <div class="qty-row">
                 <input type="number" min="1" max="50" step="1"
-                  value={favQty[fav.name] ?? 1}
-                  oninput={(e) => { favQty = { ...favQty, [fav.name]: +(e.target as HTMLInputElement).value }; }}
+                  value={favQty[fav.key] ?? 1}
+                  oninput={(e) => { favQty = { ...favQty, [fav.key]: +(e.target as HTMLInputElement).value }; }}
                 />
                 <span class="muted">×</span>
-                <button class="btn-add" onclick={() => addFromFav(fav, favQty[fav.name] ?? 1)}>+</button>
+                <button class="btn-add" onclick={() => addFromFav(fav, favQty[fav.key] ?? 1)}>+</button>
               </div>
             </div>
           {/each}

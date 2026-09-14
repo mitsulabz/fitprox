@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { theme, t, session, appData, persistSession } from "./store";
+  import { theme, t, session, appData, persistSession, sharedFoods } from "./store";
   import { saveAppState } from "./supabase";
   import { buildTimeline, recalibrate, settingsFor, dsToMs, nf, ADAPT_DEFAULT } from "./engine";
+  import { buildCatalog } from "./foods";
 
   function toggleTheme() { theme.update(v => v === "dark" ? "light" : "dark"); }
 
@@ -54,12 +55,13 @@
     URL.revokeObjectURL(url);
   }
 
-  // Liste des aliments enregistrés + macros, en CSV.
+  // Aliments visibles (catalogue partagé ∪ favoris, hors masqués) + macros, en CSV.
   function exportAliments() {
     const data = $appData as any;
     if (!data) return;
-    const favs = [...(Array.isArray(data.favorites) ? data.favorites : [])]
-      .sort((a: any, b: any) => (a.name ?? '').localeCompare(b.name ?? '', 'fr'));
+    const favs = buildCatalog({
+      shared: $sharedFoods, personal: data.favorites, hidden: data.hiddenFoods, myId: $session?.user?.id ?? '',
+    });
     const esc = (v: any) => {
       const s = String(v ?? '');
       return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -291,7 +293,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     </button>
   </div>
 
-  <div class="version caption">FitProX · V13.8</div>
+  <div class="version caption">FitProX · V13.9</div>
 </div>
 
 <style>
