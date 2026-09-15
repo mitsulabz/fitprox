@@ -79,7 +79,7 @@
     };
     const _t = new Date();
     const todayMs = Date.UTC(_t.getFullYear(), _t.getMonth(), _t.getDate());
-    initGraphViz(root, { W0, F0, BASE0, history, waterBanner, saved, onSave, measured: pts, todayMs, reconciliation,
+    return initGraphViz(root, { W0, F0, BASE0, history, waterBanner, saved, onSave, measured: pts, todayMs, reconciliation,
       owner: isOwner(uid), j1Label, baseSource: (st as any).source ?? 'mesure' });
   });
 </script>
@@ -126,8 +126,8 @@
   .graph-root .sw { width:20px; height:0; border-top:2.6px solid; border-radius:2px; }
   .graph-root .swb { width:20px; height:11px; background:var(--band); border-radius:3px; }
   .graph-root .cw { position:relative; overflow-x:auto; overflow-y:hidden; }
-  .graph-root .cw svg { min-width:600px; }
-  .graph-root .tip { position:absolute; pointer-events:none; opacity:0; transition:opacity .1s; background:var(--surface-2); border:1px solid var(--line); border-radius:9px; padding:8px 11px; font-size:12.5px; box-shadow:0 6px 20px rgba(0,0,0,.14); white-space:nowrap; font-variant-numeric:tabular-nums; z-index:5; top:6px; }
+  .graph-root .cw svg { display:block; }
+  .graph-root .tip { position:absolute; pointer-events:none; opacity:0; transition:opacity .1s; background:var(--surface-2); border:1px solid var(--line); border-radius:9px; padding:8px 11px; font-size:12.5px; box-shadow:0 6px 20px rgba(0,0,0,.14); white-space:nowrap; font-variant-numeric:tabular-nums; z-index:5; top:6px; max-width:calc(100% - 8px); }
   .graph-root .tip b { display:block; margin-bottom:4px; font-size:12px; color:var(--text-secondary); font-weight:500; }
   .graph-root .tip div { display:flex; justify-content:space-between; gap:16px; }
   .graph-root .tip i { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }

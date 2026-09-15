@@ -109,9 +109,19 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
   const fdate=t=>{const d=new Date(t);return d.getUTCDate()+' '+MO[d.getUTCMonth()]+' '+d.getUTCFullYear();};
   const fshort=t=>{const d=new Date(t);return d.getUTCDate()+' '+MO[d.getUTCMonth()];};
   const fmon=t=>{const d=new Date(t);return '1er '+MO[d.getUTCMonth()]+' '+(d.getUTCFullYear()===2027?'27':'26');};
+  // dessin à la largeur réelle du cadre : sur mobile le graphique tient dans l'écran
+  // (texte à taille lisible) au lieu de déborder à droite
+  const geo=cwW=>{const W=Math.max(300,Math.min(940,Math.round(cwW||940))),n=W<600;
+    return {W,PL:n?40:54,PR:n?80:104,PH:n?120:155,GAP:n?44:48};};
+  // étiquettes de dates : on saute celles qui chevaucheraient la précédente
+  const spaced=(ticks,X,minPx)=>{const out=[];let lx=-1e9;for(const t of ticks){const x=X(t);if(x-lx>=minPx){out.push(t);lx=x;}}return out;};
+  // bulle : à droite du curseur, basculée à gauche près du bord, toujours dans la zone visible
+  function placeTip(tip,px){const box=tip.parentElement,tw=tip.offsetWidth,sl=box.scrollLeft,bw=box.clientWidth;
+    let left=px+14; if(left+tw>sl+bw-4) left=px-14-tw;
+    tip.style.left=Math.max(sl+4,Math.min(left,sl+bw-tw-4))+'px'; tip.style.opacity=1;}
 
-  function panel(id,C,LO,HI,daily,pT0,pT1){
-    const W=940,PL=54,PR=104,PT=34,PH=155,GAP=48,PB=32;
+  function panel(id,C,LO,HI,daily,pT0,pT1,cwW){
+    const {W,PL,PR,PH,GAP}=geo(cwW),PT=34,PB=32;
     const t0=pT0,t1=pT1;
     const X=t=>PL+(t1===t0?0:(t-t0)/(t1-t0)*(W-PL-PR));
     const S=[];
@@ -158,7 +168,7 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
       }
     });
     const yb=PT+3*(PH+GAP)-GAP;
-    ticks.forEach(t=>S.push(`<text x="${X(t).toFixed(1)}" y="${yb+18}" class="tk" text-anchor="middle">${daily?fshort(t):fmon(t)}</text>`));
+    spaced(ticks,X,daily?46:62).forEach(t=>S.push(`<text x="${X(t).toFixed(1)}" y="${yb+18}" class="tk" text-anchor="middle">${daily?fshort(t):fmon(t)}</text>`));
     S.push(`<line class="crs" id="${id}crs" x1="0" x2="0" y1="${PT-12}" y2="${yb}" style="opacity:0"/>`);
     for(let i=0;i<3;i++) S.push(`<circle id="${id}h${i}" r="5" fill="var(--s${i+1})" stroke="var(--surface-1)" stroke-width="2" style="opacity:0"/>`);
     S.push(`<rect id="${id}hit" x="${PL}" y="${PT-12}" width="${W-PL-PR}" height="${yb-PT+12}" fill="transparent"/>`);
@@ -217,8 +227,8 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
        <div class="cw"></div>
        <details><summary>Voir le détail</summary><div class="tbl"></div></details>`;
       host.appendChild(sec);
-      const PP=panel(P.id,C,lo[pi],hi[pi],P.daily,P.t0,P.t1);
       const cw=sec.querySelector('.cw');
+      const PP=panel(P.id,C,lo[pi],hi[pi],P.daily,P.t0,P.t1,cw.clientWidth);
       cw.innerHTML=PP.svg+`<div class="tip" id="tip${P.id}"></div>`;
       sec.querySelector('.tbl').innerHTML=`<table><thead><tr><th>Date</th><th>Poids</th><th>Gras kg</th><th>Gras %</th><th>IMC</th><th>Apport</th></tr></thead><tbody>${
         C.map(p=>`<tr><td>${P.daily?fdate(p.t):fmon(p.t)}</td><td>${p.w.toFixed(2).replace('.',',')}</td><td>${p.f.toFixed(1).replace('.',',')}</td><td>${(100*p.f/p.w).toFixed(1).replace('.',',')}</td><td>${(p.w/3.24).toFixed(1).replace('.',',')}</td><td>${p.kcal}</td></tr>`).join('')}</tbody></table>`;
@@ -264,16 +274,15 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
           <div><span>Taux de graisse</span><span>${(100*b.f/b.w).toFixed(1).replace('.',',')} %</span></div>
           <div><span><i style="background:var(--s3)"></i>Apport</span><span>${b.kcal} kcal</span></div>`+mReal;
       }
-      const px=x*r.width/P.W;
-      tip.style.left=Math.min(Math.max(px+14,4),r.width-tip.offsetWidth-4)+'px'; tip.style.opacity=1;};
+      placeTip(tip,x*r.width/P.W);};
     hit.addEventListener('mousemove',move);
     hit.addEventListener('mouseleave',()=>{tip.style.opacity=0;crs.style.opacity=0;h.forEach(c=>c.style.opacity=0);});
     hit.addEventListener('touchstart',e=>move(e.touches[0]));
     hit.addEventListener('touchmove',e=>{move(e.touches[0]);e.preventDefault();},{passive:false});
   }
 
-  function histPanel(id,C){
-    const W=940,PL=54,PR=104,PT=34,PH=155,GAP=48,PB=32;
+  function histPanel(id,C,cwW){
+    const {W,PL,PR,PH,GAP}=geo(cwW),PT=34,PB=32;
     const t0=C[0].t,t1=C[C.length-1].t;
     const X=t=>PL+(t1===t0?0:(t-t0)/(t1-t0)*(W-PL-PR));
     const S=[];
@@ -307,7 +316,7 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
       S.push(`<text x="${PL+4}" y="${(Y(first[key])-10).toFixed(1)}" class="dl0">${fm(first[key])}</text>`);
     });
     const yb=PT+2*(PH+GAP)-GAP;
-    ticks.forEach(t=>S.push(`<text x="${X(t).toFixed(1)}" y="${yb+18}" class="tk" text-anchor="middle">${fshort(t)}</text>`));
+    spaced(ticks,X,46).forEach(t=>S.push(`<text x="${X(t).toFixed(1)}" y="${yb+18}" class="tk" text-anchor="middle">${fshort(t)}</text>`));
     S.push(`<line class="crs" id="${id}crs" x1="0" x2="0" y1="${PT-12}" y2="${yb}" style="opacity:0"/>`);
     for(let i=0;i<2;i++) S.push(`<circle id="${id}h${i}" r="5" fill="var(--s${i+1})" stroke="var(--surface-1)" stroke-width="2" style="opacity:0"/>`);
     S.push(`<rect id="${id}hit" x="${PL}" y="${PT-12}" width="${W-PL-PR}" height="${yb-PT+12}" fill="transparent"/>`);
@@ -323,8 +332,7 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
       const x=P.X(best.t); crs.setAttribute('x1',x); crs.setAttribute('x2',x); crs.style.opacity=1;
       [best.w,best.f].forEach((v,i)=>{ if(v==null){h[i].style.opacity=0;return;} h[i].setAttribute('cx',x);h[i].setAttribute('cy',P.yy[i](v));h[i].style.opacity=1;});
       tip.innerHTML=`<b>${fdate(best.t)}</b><div><span><i style="background:var(--s1)"></i>Poids</span><span>${best.w.toFixed(2).replace('.',',')} kg</span></div>`+(best.f!=null?`<div><span><i style="background:var(--s2)"></i>Masse grasse</span><span>${best.f.toFixed(1).replace('.',',')} kg</span></div><div><span>Taux de graisse</span><span>${(100*best.f/best.w).toFixed(1).replace('.',',')} %</span></div>`:'');
-      const px=x*r.width/P.W;
-      tip.style.left=Math.min(Math.max(px+14,4),r.width-tip.offsetWidth-4)+'px'; tip.style.opacity=1;};
+      placeTip(tip,x*r.width/P.W);};
     hit.addEventListener('mousemove',move);
     hit.addEventListener('mouseleave',()=>{tip.style.opacity=0;crs.style.opacity=0;h.forEach(c=>c.style.opacity=0);});
     hit.addEventListener('touchstart',e=>move(e.touches[0]));
@@ -342,10 +350,15 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
         + `<p class="note" style="margin-top:10px">« Perte attendue » = déficit cumulé du mois ÷ 7700 kcal/kg. Écart <b style="color:#2e9e5b">vert</b> = tu perds <b>plus</b> que prévu (déficit sous-estimé, ou eau qui part). Écart <b style="color:var(--s2)">orange</b> = tu perds <b>moins</b> (tu sous-estimes ce que tu manges, ou tu retiens de l'eau ce mois-là). Proche de 0 = tes calculs collent.</p>`;
     } }
 
-  if (seed.history && seed.history.length >= 2) {
-    const HP = histPanel('H', seed.history);
-    document.getElementById('histCw').innerHTML = HP.svg + `<div class="tip" id="tipH"></div>`;
+  function renderHist() {
+    const hc = document.getElementById('histCw');
+    const HP = histPanel('H', seed.history, hc.clientWidth);
+    hc.innerHTML = HP.svg + `<div class="tip" id="tipH"></div>`;
     histHover('H', seed.history, HP);
+  }
+  const hasHist = seed.history && seed.history.length >= 2;
+  if (hasHist) {
+    renderHist();
     const hsub = document.getElementById('histSub');
     if (hsub) hsub.textContent = `Tes pesées et masse grasse saisies dans Suivi · ${fshort(seed.history[0].t)} → ${fdate(seed.history[seed.history.length-1].t)}`;
     const wb = document.getElementById('waterBanner');
@@ -356,4 +369,13 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
 
   root.querySelector('#chkAdapt').addEventListener('change',e=>{adapt=e.target.checked;render();saveState();});
   render();
+
+  // largeur changée (rotation, fenêtre) : on redessine à la nouvelle taille
+  let lastW = root.clientWidth, rT = 0;
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+    clearTimeout(rT);
+    rT = setTimeout(() => { const w = root.clientWidth; if (Math.abs(w - lastW) < 30) return; lastW = w; render(); if (hasHist) renderHist(); }, 150);
+  }) : null;
+  if (ro) ro.observe(root);
+  return () => { clearTimeout(rT); if (ro) ro.disconnect(); };
 }
