@@ -255,7 +255,18 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V14.1";
+  const BUILD = "V14.2";
+  // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
+  // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
+  async function hardReload() {
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.();
+      await Promise.all((regs ?? []).map((r) => r.update()));
+    } catch {}
+    const u = new URL(location.href);
+    u.searchParams.set('r', String(Date.now()));
+    location.replace(u.toString());
+  }
   const dateLabel = $derived((() => { const s = todayDate.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' }); return s.charAt(0).toUpperCase() + s.slice(1); })());
 
   let showModal = $state(false);
@@ -393,7 +404,7 @@
   <div class="header">
     <div>
       <div class="label">{$t.dashboard.today}</div>
-      <div class="date">{dateLabel} <span class="heure-tag">{heureLabel}</span><span class="build-tag">{BUILD}</span></div>
+      <div class="date">{dateLabel} <span class="heure-tag">{heureLabel}</span><span class="build-tag">{BUILD}</span><button class="reload-btn" onclick={hardReload} aria-label="Recharger l'app" title="Recharger"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg></button></div>
     </div>
     <div class="app-title">FitPro<span class="x">X</span></div>
   </div>
@@ -641,6 +652,8 @@
 .header { display:flex; align-items:center; justify-content:space-between; padding:20px 0 12px; }
 .date { font-size:20px; font-weight:500; color:var(--c-text); margin-top:3px; letter-spacing:-0.3px; display:flex; align-items:baseline; gap:8px; }
 .build-tag { font-size:11px; font-weight:500; color:var(--c-text3); letter-spacing:0; text-transform:none; }
+.reload-btn { align-self:center; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; margin-left:-6px; padding:0; border:0; border-radius:8px; background:transparent; color:var(--c-text3); cursor:pointer; -webkit-tap-highlight-color:transparent; }
+.reload-btn:active { background:var(--c-surface2); color:var(--c-text); }
 .macro-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:10px; }
 .macro-card { padding:14px; }
 .macro-val { font-size:18px; font-weight:600; color:var(--c-text); }
