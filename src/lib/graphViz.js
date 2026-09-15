@@ -1,20 +1,28 @@
 // @ts-nocheck
 /* Prévisionnel — poids & masse grasse.
-   Porté de l'artefact Claude "Prévisionnel". root = conteneur ;
-   seed = { W0, F0, BASE0 } dérivés du profil FitProX (poids, %MG, BMR×facteur). */
+   root = conteneur ; seed = { W0, F0, BASE0, owner, j1Label, baseSource, ... } fournis par Graph.svelte.
+   Les périodes et compétitions (objectif Toulouse) ne concernent que le compte du propriétaire ;
+   les autres utilisateurs ont un prévisionnel générique sur les 3 prochains mois. */
 export function initGraphViz(root, seed) {
   const W0 = seed.W0, F0 = seed.F0, L0 = W0 - F0;
   const BASE0 = seed.BASE0, CW = 12, ADAPT = 0.12;
   const KC = 7300, KLO = 6950, KHI = 7600, DAY = 86400000;
-  const COMP = [[Date.UTC(2026,8,19),"Chinon"],[Date.UTC(2026,8,27),"Nîmes"],[Date.UTC(2026,8,28),"Toulon"],
-    [Date.UTC(2026,9,10),"Monteux"],[Date.UTC(2026,9,11),""],[Date.UTC(2026,10,1),"TOULOUSE"]];
   const OPTS = [0,100,200,300,400,500,600,700];
   const OPTSA = [1400,1500,1600,1700,1800,1900,2000,2100,2200,2400];
   let adapt = true, mode = 'app';
   const MEAS = seed.measured || [];
   const TODAY = seed.todayMs || Date.UTC(2026,7,9);
+  const OWNER = !!seed.owner;
 
-  const PER_ALL = [
+  // compétitions du propriétaire (traits verticaux) ; aucune pour les autres comptes
+  const COMP = OWNER ? [[Date.UTC(2026,8,19),"Chinon"],[Date.UTC(2026,8,27),"Nîmes"],[Date.UTC(2026,8,28),"Toulon"],
+    [Date.UTC(2026,9,10),"Monteux"],[Date.UTC(2026,9,11),""],[Date.UTC(2026,10,1),"TOULOUSE"]] : [];
+  const nearest = (opts, v) => opts.reduce((b, o) => (Math.abs(o - v) < Math.abs(b - v) ? o : b), opts[0]);
+
+  const PER_ALL = !OWNER ? [
+    {id:'G', titre:'Les 3 prochains mois', t0:TODAY, t1:TODAY + 91*DAY, daily:true,
+     note:"jour par jour · à partir d'aujourd'hui", app:nearest(OPTSA, BASE0 - 400), def:400, acts:[]}
+  ] : [
     {id:'A', titre:'Août 2026', t0:Date.UTC(2026,7,1), t1:Date.UTC(2026,8,1), daily:true,
      note:'jour par jour · routine actuelle', app:1900, def:500,
      acts:[{n:'Vélo elliptique 40 min',k:450,j:7},{n:'Musculation',k:160,j:0}]},
@@ -67,9 +75,9 @@ export function initGraphViz(root, seed) {
 <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="chkAdapt" checked> Thermogenèse adaptative (12 % du déficit)</label>
 <span style="margin-left:20px">Je choisis <span class="seg" id="segMode" style="display:inline-flex;vertical-align:middle"></span></span></p>
 <div id="sections"></div>
-<p class="note"><strong>D'où vient la dépense.</strong> Elle n'est pas estimée par une formule mais mesurée : tes apports quotidiens confrontés à tes pesées depuis le J1 (22 juin), par bilan énergétique. Résultat : <strong>≈ ${BASE0} kcal/jour hors sport</strong> au poids de départ, décroissant de 12 kcal par kg perdu. L'option « thermogenèse adaptative » retire en plus 12 % du déficit tenu.</p>
-<p class="note"><strong>Le coût des activités.</strong> Valeurs par défaut issues des séances réellement enregistrées (calories actives, nettes du repos) : vélo elliptique <strong>10,6 kcal/min</strong>, musculation <strong>3,6</strong>. Escrime : médiane de 15 soirées de 70 à 140 min = <strong>963 kcal nettes</strong>. Badminton : médiane 570 kcal pour 1h30. Tous les champs sont modifiables.</p>
-<p class="note"><strong>Ce que le modèle ne fait pas.</strong> L'apport est constant sur chaque période : ni affûtage, ni journées de compétition, ni refill. Les traits verticaux marquent les compétitions. La répartition gras/muscle suit les mesures — ~98 % de graisse à 30 % de masse grasse — et se dégrade jusqu'à 60 % vers 15 %. Le modèle s'arrête à 12 %.</p>
+<p class="note"><strong>D'où vient la dépense.</strong> ${['formule', 'estimation', 'defaut'].includes(seed.baseSource) ? `Pour l'instant c'est une <strong>estimation</strong> (ton profil, puis tes premières mesures) : <strong>≈ ${BASE0} kcal/jour hors sport</strong> à ton poids actuel. Elle s'affine à mesure que tu logges repas et pesées (Profil → Dépense).` : `Elle n'est pas estimée par une formule mais mesurée : tes apports quotidiens confrontés à tes pesées depuis le J1 (${seed.j1Label || '—'}), par bilan énergétique. Résultat : <strong>≈ ${BASE0} kcal/jour hors sport</strong> à ton poids actuel`}, puis −12 kcal par kg perdu. L'option « thermogenèse adaptative » retire en plus 12 % du déficit tenu.</p>
+${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par défaut issues des séances réellement enregistrées (calories actives, nettes du repos) : vélo elliptique <strong>10,6 kcal/min</strong>, musculation <strong>3,6</strong>. Escrime : médiane de 15 soirées de 70 à 140 min = <strong>963 kcal nettes</strong>. Badminton : médiane 570 kcal pour 1h30. Tous les champs sont modifiables.</p>` : `<p class="note"><strong>Le coût des activités.</strong> Ajoute tes activités avec leur coût net par séance (les calories actives de ta montre) et leur fréquence par semaine. Tous les champs sont modifiables.</p>`}
+<p class="note"><strong>Ce que le modèle ne fait pas.</strong> L'apport est constant sur chaque période : ni affûtage, ni journées de compétition, ni refill.${OWNER ? ' Les traits verticaux marquent les compétitions.' : ''} La répartition gras/muscle suit les mesures — ~98 % de graisse à 30 % de masse grasse — et se dégrade jusqu'à 60 % vers 15 %. Le modèle s'arrête à 12 %.</p>
 </div>`;
 
   const moy = L => L.reduce((s,a)=>s+(+a.k||0)*(+a.j||0),0)/7;
@@ -205,7 +213,7 @@ export function initGraphViz(root, seed) {
         <span><span class="sw" style="border-color:var(--s3)"></span>apport</span>
         <span><span class="swb"></span>incertitude (6 950 – 7 600 kcal/kg)</span>
         <span><span style="width:9px;height:9px;border-radius:50%;background:var(--text-secondary);border:2px solid var(--surface-1);display:inline-block"></span>tes pesées réelles</span>
-        ${P.daily?'<span style="opacity:.75">┊ compétitions</span>':''}</div>
+        ${P.daily && OWNER?'<span style="opacity:.75">┊ compétitions</span>':''}</div>
        <div class="cw"></div>
        <details><summary>Voir le détail</summary><div class="tbl"></div></details>`;
       host.appendChild(sec);

@@ -118,7 +118,10 @@ async function loadRaw(token: string, userId: string): Promise<any | null> {
   );
   if (!r.ok) return null;
   const rows = await r.json();
-  return rows?.[0]?.data ?? null;
+  if (!Array.isArray(rows)) return null;
+  // Requête réussie sans ligne = compte tout neuf : état vide, et non « échec ».
+  // Sinon l'app resterait sans état (aucune saisie possible, pas d'accueil).
+  return rows.length ? (rows[0]?.data ?? {}) : {};
 }
 
 export async function loadAppState(token: string, userId: string): Promise<Record<string, unknown> | null> {

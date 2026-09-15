@@ -1,7 +1,8 @@
 <script lang="ts">
   import { t, appData, session } from "./store";
   import { nf } from './calc';
-  import { buildTimeline, sundayRule, APPORT_FLOOR } from './engine';
+  import { buildTimeline, sundayRule, APPORT_FLOOR, estimateBase, settingsFor } from './engine';
+  import { isOwner, userJ1, userEnd, effectiveSettingsLog, basePrior } from './account';
   import { saveAppState, refreshToken } from "./supabase";
   import { get } from "svelte/store";
   import FoodModal from "./FoodModal.svelte";
@@ -31,9 +32,12 @@
   const dayFrac = Math.min(1, (nowD.getHours() * 60 + nowD.getMinutes()) / (24 * 60));
   const heureLabel = nowD.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-  // Bornes du régime : J1 fixe, horizon = objectif du 1er novembre (Toulouse)
-  const J1_DS = '22/06/2026';
-  const END_DS = '01/11/2026';
+  // Bornes du suivi : propriétaire = J1 22/06 → objectif du 1er novembre (Toulouse) ;
+  // autres utilisateurs = leur premier jour → aujourd'hui + 90 jours.
+  const uid = $derived($session?.user?.id ?? '');
+  const owner = $derived(isOwner(uid));
+  const J1_DS = $derived(userJ1(uid, $appData));
+  const END_DS = $derived(userEnd(uid));
   const avgMacros = $derived.by(() => {
     const j1 = parseJour(J1_DS);
     if (j1) j1.setHours(0, 0, 0, 0);
@@ -59,11 +63,8 @@
   const foods = $derived(today?.foods ?? []);
 
   // ── v11 : moteur de dépense mesurée (base datée + dynamique + adaptation) ──
-  const settingsLog = $derived.by(() => {
-    const log = ($appData as any)?.programme?.settingsLog;
-    if (Array.isArray(log) && log.length) return log;
-    return [{ from: J1_DS, baseRef: 2020, poidsRef: 97.92, adaptCoef: 0.12 }];
-  });
+  // sans réglage enregistré : propriétaire = base historique ; autres = formule du profil
+  const settingsLog = $derived(effectiveSettingsLog(uid, $appData));
   const timeline = $derived.by(() => {
     // un jour = une entrée, du J1 à l'objectif ; le sport vient du champ « Sport cal » (extraKcal)
     const start = parseJour(J1_DS)!; start.setHours(0,0,0,0);
@@ -254,7 +255,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V13.9";
+  const BUILD = "V14.0";
   const dateLabel = $derived((() => { const s = todayDate.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' }); return s.charAt(0).toUpperCase() + s.slice(1); })());
 
   let showModal = $state(false);
@@ -610,6 +611,7 @@
       </div>
       <div class="caption">{$t.dashboard.since_start}</div>
     </div>
+    {#if owner}
     <div class="card stat-card">
       <div class="label">{$t.dashboard.goal_nov}</div>
       {#if bfProjected}
@@ -619,6 +621,14 @@
         <div class="value-sm">—</div>
       {/if}
     </div>
+    {:else}
+    {@const cur = settingsFor(settingsLog, todayDate.getTime()) as any}
+    <div class="card stat-card">
+      <div class="label">Dépense hors sport</div>
+      <div class="value-sm">{Math.round(cur.baseRef)} kcal</div>
+      <div class="caption">{['formule', 'estimation', 'defaut'].includes(cur.source) ? `estimation${cur.sigma ? ' ± ' + cur.sigma : ''} · s'affine (Profil)` : 'mesurée'}</div>
+    </div>
+    {/if}
   </div>
 
 </div>

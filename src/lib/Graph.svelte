@@ -4,19 +4,23 @@
   import { saveAppState } from './supabase';
   import { get } from 'svelte/store';
   import { nf } from './calc';
-  import { buildTimeline, settingsFor, dsToMs, ADAPT_DEFAULT } from './engine';
+  import { buildTimeline, settingsFor, dsToMs } from './engine';
+  import { isOwner, userJ1, effectiveSettingsLog } from './account';
   import { initGraphViz } from './graphViz';
 
   let root: HTMLDivElement;
 
   onMount(() => {
     const data = (get(appData) as any) ?? {};
+    const uid = get(session)?.user?.id ?? '';
     const p = data.profile ?? {};
     const days = data.days ?? {};
-    const J1 = Date.UTC(2026, 5, 22);      // 22 juin 2026 (J1 du régime)
+    const j1Ds = userJ1(uid, data);        // propriétaire : 22/06/2026 ; autres : leur premier jour
+    const [j1d, j1m, j1y] = j1Ds.split('/').map(Number);
+    const J1 = Date.UTC(j1y, j1m - 1, j1d);
+    const j1Label = new Date(j1y, j1m - 1, j1d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
     const nowMs = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
-    const log = (Array.isArray(data.programme?.settingsLog) && data.programme.settingsLog.length)
-      ? data.programme.settingsLog : [{ from: '22/06/2026', baseRef: 2020, poidsRef: 97.92, adaptCoef: ADAPT_DEFAULT }];
+    const log = effectiveSettingsLog(uid, data);
     // timeline (glycogène) sur les jours loggés
     const dl = Object.keys(days).map((ds) => ({ ds, t: dsToMs(ds) })).filter((x: any) => !isNaN(x.t)).sort((a: any, b: any) => a.t - b.t);
     const info = (ds: string) => {
@@ -27,7 +31,7 @@
     // cohérence mensuelle : déficit cumulé vs perte de poids mesurée
     const _MO = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
     const byMonth: any = {};
-    const J1recon = dsToMs('22/06/2026'); // début du régime (J1)
+    const J1recon = dsToMs(j1Ds); // début du régime (J1)
     for (const r of tl.list as any[]) {
       if (!r.logged || r.deficit == null || r.isFuture || r.t < J1recon) continue;
       const dt = new Date(r.t);
@@ -56,11 +60,11 @@
     pts.sort((a, b) => a.t - b.t);
     const history = pts.filter((pt) => pt.t >= J1); // jusqu'a la derniere pesee (aujourd'hui)
     const last = pts[pts.length - 1];
-    const W0 = last?.w || nf(p.weight) || 97.95;
-    const lastBf = last && last.f ? (last.f / last.w * 100) : (nf(p.bf) || 30.5);
+    const W0 = last?.w || nf(p.weight) || 80;
+    const lastBf = last && last.f ? (last.f / last.w * 100) : (nf(p.bf) || 25);
     const F0 = +(W0 * lastBf / 100).toFixed(1);
     const st: any = settingsFor(log, nowMs);
-    const BASE0 = Math.round(st.baseRef - 12 * (st.poidsRef - W0)) || 2020;
+    const BASE0 = Math.round(st.baseRef - 12 * (st.poidsRef - W0)) || 2000;
     // bannière eau (dernier jour loggé)
     const lastRec = tl.list[tl.list.length - 1];
     const eau = lastRec ? lastRec.eauGlyco : 0;
@@ -75,7 +79,8 @@
     };
     const _t = new Date();
     const todayMs = Date.UTC(_t.getFullYear(), _t.getMonth(), _t.getDate());
-    initGraphViz(root, { W0, F0, BASE0, history, waterBanner, saved, onSave, measured: pts, todayMs, reconciliation });
+    initGraphViz(root, { W0, F0, BASE0, history, waterBanner, saved, onSave, measured: pts, todayMs, reconciliation,
+      owner: isOwner(uid), j1Label, baseSource: (st as any).source ?? 'mesure' });
   });
 </script>
 

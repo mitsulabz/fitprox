@@ -1,8 +1,12 @@
 <script lang="ts">
   import { theme, t, session, appData, persistSession, sharedFoods } from "./store";
   import { saveAppState } from "./supabase";
-  import { buildTimeline, recalibrate, settingsFor, dsToMs, nf, ADAPT_DEFAULT } from "./engine";
+  import { buildTimeline, estimateBase, settingsFor, dsToMs, nf, ADAPT_DEFAULT } from "./engine";
+  import { userJ1, effectiveSettingsLog, basePrior, isEstimateSource } from "./account";
   import { buildCatalog } from "./foods";
+  import BaseSetup from "./BaseSetup.svelte";
+
+  const uid = $derived($session?.user?.id ?? '');
 
   function toggleTheme() { theme.update(v => v === "dark" ? "light" : "dark"); }
 
@@ -25,7 +29,8 @@
     if (!data) return;
     const days = data.days ?? {};
     const rows = ['date,kcal_mangees,proteines_g,glucides_g,lipides_g,sport_kcal_actives,poids_kg,masse_grasse_pct'];
-    const j1 = new Date(2026, 5, 22); // J1 du régime (22 juin 2026)
+    const [jd, jm, jy] = userJ1(uid, data).split('/').map(Number);
+    const j1 = new Date(jy, jm - 1, jd); // J1 de l'utilisateur (propriétaire : 22 juin 2026)
     const end = new Date(); end.setHours(0, 0, 0, 0);
     for (const c = new Date(j1); c.getTime() <= end.getTime(); c.setDate(c.getDate() + 1)) {
       const ds = c.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -91,30 +96,26 @@
   let importStatus = $state('');
   let fileInput: HTMLInputElement;
 
-  // ── Profil editable ──
-
-  // ── v11 : base mesurée datée + recalibrage ──
+  // ── Base hors sport : datée ; estimation rapide = formule + mesures pondérées ──
   const _now = new Date(); _now.setHours(0,0,0,0);
   const todayMs = _now.getTime();
   const todayDs = _now.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' });
-  function effectiveLog(data: any) {
-    const log = data?.programme?.settingsLog;
-    if (Array.isArray(log) && log.length) return log;
-    let from = todayDs, minT = Infinity;
-    for (const k of Object.keys(data?.days ?? {})) { const t = dsToMs(k); if (!isNaN(t) && t < minT) { minT = t; from = k; } }
-    return [{ from, baseRef: 2020, poidsRef: 97.92, adaptCoef: ADAPT_DEFAULT }];
-  }
+  const J1_DS = $derived(userJ1(uid, $appData)); // propriétaire : 22/06/2026 ; autres : leur 1er jour
+  const curSettings = $derived(settingsFor(effectiveSettingsLog(uid, $appData), todayMs) as any);
+  const prior = $derived(basePrior(uid, $appData, curSettings));
   let baseForm = $state({ baseRef: '', poidsRef: '', adaptCoef: '' });
   let baseLoaded = false;
   let baseStatus = $state('');
+  let showSetup = $state(false);
+
+  function syncForm() {
+    const cur: any = settingsFor(effectiveSettingsLog(uid, $appData), todayMs);
+    baseForm = { baseRef: String(cur.baseRef), poidsRef: String(cur.poidsRef), adaptCoef: String(cur.adaptCoef ?? ADAPT_DEFAULT) };
+  }
   $effect(() => {
-    const data = $appData as any;
-    if (data && !baseLoaded) {
-      const cur: any = settingsFor(effectiveLog(data), todayMs);
-      baseForm = { baseRef: String(cur.baseRef), poidsRef: String(cur.poidsRef), adaptCoef: String(cur.adaptCoef ?? ADAPT_DEFAULT) };
-      baseLoaded = true;
-    }
+    if ($appData && !baseLoaded) { syncForm(); baseLoaded = true; }
   });
+
   const recalib = $derived.by(() => {
     const data = $appData as any; if (!data) return null;
     const days = data.days ?? {};
@@ -123,16 +124,15 @@
       const dd: any = days[ds] ?? {}; const fds = dd.foods ?? [];
       return { weight: nf(dd.weight), bf: nf(dd.bf), eaten: fds.reduce((s: number,f: any)=>s+(f.k||0),0), gluc: fds.reduce((s: number,f: any)=>s+(f.g||0),0), prot: fds.reduce((s: number,f: any)=>s+(f.p||0),0), extraKcal: dd.extraKcal ?? 0, sportKcal: 0, libre: !!dd.libre, logged: fds.length > 0 };
     };
-    const tl = buildTimeline({ dateList, settingsLog: effectiveLog(data), todayTime: todayMs, dayFrac: 1, info });
-    return recalibrate(tl);
+    const tl = buildTimeline({ dateList, settingsLog: effectiveSettingsLog(uid, data), todayTime: todayMs, dayFrac: 1, info });
+    return estimateBase(tl, prior, { startT: dsToMs(J1_DS) }) as any;
   });
-  const J1_DS = '22/06/2026'; // début du régime
 
   /* Date d'effet : aujourd'hui par défaut (le passé reste figé).
      Avec allHistory, on remplace TOUT le journal par une seule entrée datée du J1.
-     Ce cas sert quand la base précédente n'était pas une mesure mais une valeur
-     de départ arbitraire : la figer perpétuerait l'erreur au lieu de la corriger. */
-  async function saveBase(baseRef: any, poidsRef: any, adaptCoef: any, allHistory = false) {
+     Ce cas sert quand la base précédente n'était pas une mesure mais une estimation :
+     la figer perpétuerait l'erreur au lieu de la corriger. extra : source, incertitude. */
+  async function saveBase(baseRef: any, poidsRef: any, adaptCoef: any, allHistory = false, extra: Record<string, unknown> = {}) {
     const s = $session; const data = $appData as any;
     if (!s || !data) return;
     const fromDs = allHistory ? J1_DS : todayDs;
@@ -141,16 +141,16 @@
     let log: any[] = [];
     if (!allHistory) {
       log = Array.isArray(prog.settingsLog) ? [...prog.settingsLog] : [];
-      if (!log.length) log = effectiveLog(data).slice(); // fige le passé avec la base initiale
+      if (!log.length) log = effectiveSettingsLog(uid, data).slice(); // fige le passé avec la base initiale
       log = log.filter((e: any) => e.from !== fromDs);
     }
-    log.push({ from: fromDs, baseRef: Math.round(nf(baseRef)), poidsRef: +nf(poidsRef).toFixed(2), adaptCoef: Math.max(0, Math.min(0.15, nf(adaptCoef))) });
+    log.push({ from: fromDs, baseRef: Math.round(nf(baseRef)), poidsRef: +nf(poidsRef).toFixed(2), adaptCoef: Math.max(0, Math.min(0.15, nf(adaptCoef))), ...extra });
     log.sort((a: any, b: any) => dsToMs(a.from) - dsToMs(b.from));
     const newData = { ...data, programme: { ...prog, settingsLog: log } };
     appData.set(newData);
     try {
       await saveAppState(s.access_token, s.user.id, newData);
-      baseStatus = allHistory ? '\u2713 Base appliqu\u00e9e \u00e0 tout l\u2019historique' : '\u2713 Base enregistr\u00e9e (d\u00e8s aujourd\u2019hui)';
+      baseStatus = allHistory ? '✓ Base appliquée à tout l’historique' : '✓ Base enregistrée (dès aujourd’hui)';
     } catch { baseStatus = 'Erreur de sauvegarde'; }
     setTimeout(() => baseStatus = '', 2600);
   }
@@ -165,7 +165,16 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     saveBase(baseForm.baseRef, baseForm.poidsRef, baseForm.adaptCoef, true);
   }
 
-  function applyRecalib() { if (recalib && (recalib as any).ok) { const r: any = recalib; baseForm = { ...baseForm, baseRef: String(r.baseRef), poidsRef: String(r.poidsRef) }; saveBase(r.baseRef, r.poidsRef, baseForm.adaptCoef); } }
+  /* Appliquer l'estimation : tant que la base en vigueur n'est qu'une estimation, on corrige
+     tout l'historique ; dès que la confiance est bonne, elle devient une mesure (passé figé ensuite).
+     Adaptation à 0 : l'estimation s'appuie sur tes mesures, qui contiennent déjà le ralentissement. */
+  function applyEstimate() {
+    const r: any = recalib;
+    if (!r || !r.ok) return;
+    const allHistory = isEstimateSource(curSettings.source);
+    baseForm = { ...baseForm, baseRef: String(r.base), poidsRef: String(r.poidsRef), adaptCoef: '0' };
+    saveBase(r.base, r.poidsRef, 0, allHistory, { source: r.confidence === 'bonne' ? 'mesure' : 'estimation', sigma: r.sigma });
+  }
 
   function triggerImport() { fileInput.click(); }
 
@@ -232,17 +241,25 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     <div class="stitle">{$t.nav.reglages}</div>
   </div>
 
-  <div class="section-title">Dépense mesurée (base)</div>
+  <div class="section-title">Dépense hors sport (base)</div>
   <div class="section profile-form">
-    <label class="pf-row"><span>Base mesurée (kcal/j)</span><input type="number" inputmode="numeric" step="10" bind:value={baseForm.baseRef} /></label>
+    <button class="card save-btn" onclick={() => (showSetup = true)}>🧮 Calcul calories de départ</button>
+    {#if isEstimateSource(curSettings.source)}
+      <p class="pf-hint">Ta base actuelle est une <b>estimation</b>{curSettings.source === 'formule' ? ' par formule' : ''} : elle s'affine avec tes repas et tes pesées.</p>
+    {/if}
+    <label class="pf-row"><span>Base (kcal/j)</span><input type="number" inputmode="numeric" step="10" bind:value={baseForm.baseRef} /></label>
     <label class="pf-row"><span>Poids de réf. (kg)</span><input type="number" inputmode="decimal" step="0.1" bind:value={baseForm.poidsRef} /></label>
     <label class="pf-row"><span>Adaptation (0–0,15)</span><input type="number" inputmode="decimal" step="0.01" bind:value={baseForm.adaptCoef} /></label>
-    <p class="pf-hint">Dépense hors sport à ce poids de référence (mesurée par bilan énergétique). Elle varie ensuite de −12 kcal par kg perdu.<br/><b>Adaptation</b> : à laisser à 0 si la base vient du recalibrage — une base mesurée contient déjà le ralentissement métabolique, la retrancher une 2ᵉ fois le compterait en double.</p>
+    <p class="pf-hint">Dépense hors sport à ce poids de référence. Elle varie ensuite de −12 kcal par kg perdu.<br/><b>Adaptation</b> : 0 si la base vient de tes mesures (elle contient déjà le ralentissement métabolique) ; 0,12 si c'est une estimation par formule.</p>
     {#if recalib && recalib.ok}
-      <div class="recalib-banner">📏 Base mesurée sur {recalib.days} j : <b>{recalib.baseRef}</b> kcal · poids réf {String(recalib.poidsRef).replace('.', ',')} kg · perte {String(recalib.perteMM7).replace('.', ',')} kg
-        <button class="recalib-btn" onclick={applyRecalib}>Appliquer</button></div>
+      {@const pctMes = Math.round(recalib.weightMeasured * 100)}
+      <div class="recalib-banner">
+        📏 D'après tes données : <b>{recalib.base} kcal</b> ± {recalib.sigma} · confiance {recalib.confidence}
+        <div class="recalib-sub">{recalib.days} j loggés · {recalib.weighIns} pesées · {pctMes} % tes mesures, {100 - pctMes} % {prior.source === 'formule' ? 'formule de départ' : 'réglage actuel'}{recalib.carbShift ? ' · glucides variables : prudence' : ''}</div>
+        <button class="recalib-btn" onclick={applyEstimate}>Appliquer</button>
+      </div>
     {:else if recalib && !recalib.ok}
-      <p class="pf-hint">Recalibrage indispo : {recalib.reason}.</p>
+      <p class="pf-hint">📏 Affinage par tes mesures dès 7 jours loggés et 4 pesées, hors 1re semaine de régime (où la perte est surtout de l'eau) — {recalib.reason}.</p>
     {/if}
     <button class="card save-btn" onclick={saveBaseForm}>Enregistrer la base (dès aujourd'hui)</button>
     <button class="card save-btn alt-btn" onclick={saveBaseAll}>Appliquer aussi au passé (depuis le J1)</button>
@@ -293,8 +310,12 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     </button>
   </div>
 
-  <div class="version caption">FitProX · V13.9</div>
+  <div class="version caption">FitProX · V14.0</div>
 </div>
+
+{#if showSetup}
+  <BaseSetup onclose={() => { showSetup = false; syncForm(); }} />
+{/if}
 
 <style>
 .sheader { padding:20px 0 14px; }
@@ -315,9 +336,10 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
 .pf-row span { font-size:14px; color:var(--c-text); }
 .pf-hint { font-size:11px; color:var(--c-text3); margin:2px 2px 0; line-height:1.4; }
 .recalib-banner { font-size:12.5px; color:var(--c-text); background:var(--c-surface2); border:1px solid var(--c-border); border-radius:var(--r-md); padding:9px 11px; line-height:1.5; }
-.recalib-btn { margin-left:6px; border:none; background:var(--c-accent); color:var(--c-accent-fg); font-size:12px; font-weight:600; padding:4px 10px; border-radius:7px; cursor:pointer; font-family:var(--font); }
-.pf-row input, .pf-row select { width:110px; padding:6px 8px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text); font-size:14px; text-align:right; font-family:var(--font); }
-.pf-row input:focus, .pf-row select:focus { outline:none; border-color:var(--c-accent); }
+.recalib-sub { font-size:11px; color:var(--c-text3); margin-top:2px; }
+.recalib-btn { margin-top:6px; border:none; background:var(--c-accent); color:var(--c-accent-fg); font-size:12px; font-weight:600; padding:5px 12px; border-radius:7px; cursor:pointer; font-family:var(--font); }
+.pf-row input { width:110px; padding:6px 8px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text); font-size:14px; text-align:right; font-family:var(--font); }
+.pf-row input:focus { outline:none; border-color:var(--c-accent); }
 .save-btn { text-align:center; justify-content:center; padding:12px; background:var(--c-accent); color:var(--c-accent-fg); border:none; font-size:14px; font-weight:600; cursor:pointer; font-family:var(--font); border-radius:var(--r-md); }
 .alt-btn { background:transparent; color:var(--c-accent); border:1px solid var(--c-accent); margin-top:6px; }
 </style>

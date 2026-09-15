@@ -3,7 +3,9 @@
   import { loadAppState, saveAppState, refreshToken, upsertProfile, retryPendingSave } from "./lib/supabase";
   import { migrateSportV13, trimPreJ1 } from "./lib/migrate";
   import { refreshSharedFoods } from "./lib/sharedFoods";
+  import { needsBaseSetup } from "./lib/account";
   import AuthGate from "./lib/AuthGate.svelte";
+  import BaseSetup from "./lib/BaseSetup.svelte";
   import BottomNav from "./lib/BottomNav.svelte";
   import Dashboard from "./lib/Dashboard.svelte";
   import Graph from "./lib/Graph.svelte";
@@ -62,6 +64,10 @@
     if (firstRun) { firstRun = false; return; }
     await loadData(s);
   });
+
+  // Accueil « calories de départ » : compte non configuré (hors propriétaire)
+  let setupClosed = $state(false);
+  const showSetup = $derived(!setupClosed && needsBaseSetup($session?.user?.id ?? '', $appData));
 </script>
 
 {#if $authLoading}
@@ -79,6 +85,7 @@
   {/if}
   {#if $activeTab === "reglages"}<Settings />{/if}
   <BottomNav />
+  {#if showSetup}<BaseSetup firstRun={true} onclose={() => (setupClosed = true)} />{/if}
 {/if}
 
 <style>
