@@ -107,10 +107,18 @@
     if (closeAfter) onclose();
   }
 
+  // Quantité : flèches ▼ ▲ ; sous 1 -> 0,5 (demi-portion) ; 99 maximum
+  const fmtQty = (q: number) => String(q).replace('.', ',');
+  function stepQty(key: string, dir: number) {
+    const q = favQty[key] ?? 1;
+    const n = dir < 0 ? (q <= 1 ? 0.5 : q - 1) : (q < 1 ? 1 : Math.min(99, q + 1));
+    favQty = { ...favQty, [key]: n };
+  }
+
   function addFromFav(fav: any, qty: number = 1) {
-    const n = Math.max(1, Math.round(qty || 1));
+    const n = qty === 0.5 ? 0.5 : Math.max(1, Math.min(99, Math.round(qty || 1)));
     commitFood({
-      n: n > 1 ? `${fav.name} ×${n}` : fav.name,
+      n: n !== 1 ? `${fav.name} ×${fmtQty(n)}` : fav.name,
       k: (fav.kcal ?? 0) * n, p: (fav.p ?? 0) * n, g: (fav.g ?? 0) * n, l: (fav.l ?? 0) * n,
       fi: fiOk(fav.fi) ? +fav.fi * n : null,
     }, true, true);
@@ -286,18 +294,21 @@
             <div class="empty">Aucun aliment ne correspond à « {favFilter} ».</div>
           {/if}
           {#each filtered as fav (fav.key)}
+            {@const q = favQty[fav.key] ?? 1}
             <div class="food-row">
               <div class="food-info">
                 <span class="food-name">{fav.name}</span>
                 <span class="food-macros">{Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p??0).toFixed(1)}g · G {+(fav.g??0).toFixed(1)}g · L {+(fav.l??0).toFixed(1)}g{trackFiber ? fiTxt(fav.fi) : ''} <span class="muted">{fav.per === 'unit' ? '/portion' : '/100g'}</span></span>
               </div>
               <div class="qty-row">
-                <input type="number" min="1" max="50" step="1"
-                  value={favQty[fav.key] ?? 1}
-                  oninput={(e) => { favQty = { ...favQty, [fav.key]: +(e.target as HTMLInputElement).value }; }}
-                />
-                <span class="muted">×</span>
-                <button class="btn-add" onclick={() => addFromFav(fav, favQty[fav.key] ?? 1)}>+</button>
+                <button type="button" class="step" onclick={() => stepQty(fav.key, -1)} disabled={q <= 0.5} aria-label="Diminuer la quantité">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <span class="qty-val" aria-live="polite">{fmtQty(q)}</span>
+                <button type="button" class="step" onclick={() => stepQty(fav.key, 1)} disabled={q >= 99} aria-label="Augmenter la quantité">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 15 12 9 18 15"/></svg>
+                </button>
+                <button class="btn-add" onclick={() => addFromFav(fav, q)} aria-label="Ajouter">+</button>
               </div>
             </div>
           {/each}
@@ -385,7 +396,11 @@
 .fav-filter:focus { outline:none; border-color:var(--c-accent); }
 .qty-row { display:flex; align-items:center; gap:4px; flex-shrink:0; }
 .qty-row input { width:52px; padding:5px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text); font-size:13px; text-align:center; font-family:var(--font); }
-.btn-add { width:30px; height:30px; border:none; border-radius:50%; background:var(--c-accent); color:var(--c-accent-fg); font-size:20px; font-weight:300; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.step { width:34px; height:34px; border:1px solid var(--c-border); border-radius:10px; background:var(--c-bg); color:var(--c-text); display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer; flex-shrink:0; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+.step:active { background:var(--c-surface2); }
+.step:disabled { opacity:.35; cursor:default; }
+.qty-val { min-width:26px; text-align:center; font-size:14px; font-weight:600; color:var(--c-text); font-variant-numeric:tabular-nums; }
+.btn-add { margin-left:4px; width:30px; height:30px; border:none; border-radius:50%; background:var(--c-accent); color:var(--c-accent-fg); font-size:20px; font-weight:300; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .search-bar { display:flex; gap:8px; }
 .search-bar input, /* unused */ .scan-bar-unused { flex:1; padding:9px 12px; border:1px solid var(--c-border); border-radius:var(--r-md); background:var(--c-surface); color:var(--c-text); font-size:14px; font-family:var(--font); }
 .search-bar input:focus { outline:none; border-color:var(--c-accent); }

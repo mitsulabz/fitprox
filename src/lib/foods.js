@@ -26,6 +26,13 @@ const hasName = (f) => String(f?.name ?? '').trim() !== '';
 export function buildCatalog({ shared, personal, hidden, myId }) {
   const hid = new Set(Array.isArray(hidden) ? hidden : []);
   const byKey = new Map();
+  // Mes corrections d'un aliment partagé par quelqu'un d'autre (ov) passent avant la version partagée
+  for (const f of Array.isArray(personal) ? personal : []) {
+    if (!f?.ov || !hasName(f)) continue;
+    const key = foodKey(f.name, f.per);
+    if (hid.has(key) || byKey.has(key)) continue;
+    byKey.set(key, { ...f, key, shared: false, mine: true, override: true });
+  }
   for (const f of Array.isArray(shared) ? shared : []) {
     if (!hasName(f)) continue;
     const key = foodKey(f.name, f.per);
@@ -72,4 +79,32 @@ export function toSharedRow(f) {
     fi: opt(f?.fi, MAX_MACRO, 1),
     sel: opt(f?.sel, MAX_SEL, 2),
   };
+}
+
+/* Reporte les fibres d'un aliment sur les repas passés qui le citent :
+   « Nom » (×1) ou « Nom ×2 », « Nom ×0,5 » (format de l'ajout depuis la liste d'aliments).
+   Seules les fibres sont touchées : kcal et macros des jours passés restent inchangés. */
+export function backfillFiber(days, name, fiPerUnit) {
+  const base = String(name ?? '').trim().toLowerCase();
+  const re = /^(.*?)\s*×\s*(\d+(?:[.,]\d+)?)$/;
+  const out = {};
+  let n = 0;
+  for (const [ds, d] of Object.entries(days ?? {})) {
+    const foods = Array.isArray(d?.foods) ? d.foods : null;
+    if (!foods || !base) { out[ds] = d; continue; }
+    let changed = false;
+    const next = foods.map((f) => {
+      const nm = String(f?.n ?? '').trim();
+      let mult = 0;
+      if (nm.toLowerCase() === base) mult = 1;
+      else { const m = nm.match(re); if (m && m[1].trim().toLowerCase() === base) mult = parseFloat(m[2].replace(',', '.')); }
+      if (!(mult > 0)) return f;
+      const fi = +(fiPerUnit * mult).toFixed(1);
+      if (f.fi === fi) return f;
+      changed = true; n++;
+      return { ...f, fi };
+    });
+    out[ds] = changed ? { ...d, foods: next } : d;
+  }
+  return { days: out, n };
 }

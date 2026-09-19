@@ -66,7 +66,7 @@ export function initGraphViz(root, seed) {
 <h2>Historique réel</h2>
 <div class="h2sub" id="histSub">Tes pesées et masse grasse saisies dans Suivi</div>
 <div class="cw" id="histCw"></div>
-<div class="legend"><span><span class="sw" style="border-color:var(--s1)"></span>poids</span><span><span class="sw" style="border-color:var(--s2)"></span>masse grasse</span><span><span class="sw" style="border-color:var(--s3)"></span>poids ajusté (glycogène)</span></div>
+<div class="legend"><span><span class="sw" style="border-color:var(--s1)"></span>poids</span><span><span class="sw" style="border-color:var(--s2)"></span>masse grasse</span><span><span class="sw" style="border-color:var(--s3)"></span>poids ajusté (glycogène)</span>${(seed.fiber||[]).length ? '<span><span class="sw" style="border-color:var(--s4)"></span>fibres (g/jour)</span>' : ''}</div>
 <div id="waterBanner"></div>
 </section>
 <h2 style="margin:30px 0 2px">Prévisionnel</h2>
@@ -281,57 +281,82 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
     hit.addEventListener('touchmove',e=>{move(e.touches[0]);e.preventDefault();},{passive:false});
   }
 
-  function histPanel(id,C,cwW){
+  function histPanel(id,C,cwW,FI,fiT){
     const {W,PL,PR,PH,GAP}=geo(cwW),PT=34,PB=32;
-    const t0=C[0].t,t1=C[C.length-1].t;
+    FI=FI||[];
+    const ts=C.map(p=>p.t).concat(FI.map(p=>p.t));
+    const t0=Math.min(...ts),t1=Math.max(...ts);
     const X=t=>PL+(t1===t0?0:(t-t0)/(t1-t0)*(W-PL-PR));
     const S=[];
-    const SER=[['Poids','w','var(--s1)','kg'],['Masse grasse','f','var(--s2)','kg']];
+    const SER=[['Poids','w','var(--s1)','kg',C],['Masse grasse','f','var(--s2)','kg',C]];
+    if(FI.length) SER.push(['Fibres','fi','var(--s4)','g/jour',FI]);
     const n=Math.max(1,Math.round((t1-t0)/DAY/8)); let ticks=[];
     for(let t=t0;t<=t1;t+=DAY){const d=new Date(t); if(d.getUTCDate()===1||t===t0||t===t1||(n>=2&&(d.getUTCDate()===15||(n<=3&&d.getUTCDate()%10===0)))) ticks.push(t);}
     const yy=[];
     SER.forEach((se,pi)=>{
-      const key=se[1],top=PT+pi*(PH+GAP);
-      const vals=C.map(p=>p[key]).concat(key==='w'?C.map(p=>p.adj):[]).filter(v=>v!=null);
+      const key=se[1],D=se[4],isFi=key==='fi',top=PT+pi*(PH+GAP);
+      const vals=D.map(p=>p[key]).concat(key==='w'?C.map(p=>p.adj):[]).filter(v=>v!=null);
       if(!vals.length){yy.push(()=>top+PH); return;}
       const lo0=Math.min(...vals),hi0=Math.max(...vals);
-      const m=(hi0-lo0)*0.25||0.5, lo=lo0-m, hi=hi0+m;
+      let lo,hi;
+      if(isFi){ lo=0; hi=(Math.max(hi0,fiT||0)*1.15)||10; }
+      else { const m=(hi0-lo0)*0.25||0.5; lo=lo0-m; hi=hi0+m; }
       const Y=v=>top+PH-(v-lo)/(hi-lo)*PH; yy.push(Y);
-      S.push(`<text x="${PL}" y="${top-8}" class="pt">${se[0]}<tspan class="pu"> — ${se[2+1]}</tspan></text>`);
-      const step=(hi-lo)>9?4:((hi-lo)>4.5?2:((hi-lo)>2.2?1:0.5));
+      S.push(`<text x="${PL}" y="${top-8}" class="pt">${se[0]}<tspan class="pu"> — ${se[3]}</tspan></text>`);
+      const step=isFi?((hi-lo)>45?10:5):((hi-lo)>9?4:((hi-lo)>4.5?2:((hi-lo)>2.2?1:0.5)));
       for(let v=Math.ceil(lo/step)*step;v<hi;v+=step){
         S.push(`<line x1="${PL}" x2="${W-PR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" class="gr"/>`);
         S.push(`<text x="${PL-8}" y="${(Y(v)+4).toFixed(1)}" class="tk" text-anchor="end">${(+v.toFixed(1)).toString().replace('.',',')}</text>`);
       }
       ticks.forEach(t=>S.push(`<line x1="${X(t).toFixed(1)}" x2="${X(t).toFixed(1)}" y1="${top}" y2="${top+PH}" class="grv"/>`));
-      const pline=C.filter(p=>p[key]!=null).map(p=>`${X(p.t).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(' ');
+      if(isFi&&fiT){
+        S.push(`<line x1="${PL}" x2="${W-PR}" y1="${Y(fiT).toFixed(1)}" y2="${Y(fiT).toFixed(1)}" class="ref"/>`);
+        S.push(`<text x="${PL+4}" y="${(Y(fiT)-4).toFixed(1)}" class="reftx" text-anchor="start">cible ≈ ${fiT} g</text>`);
+      }
+      const pres=D.filter(p=>p[key]!=null);
+      const pline=pres.map(p=>`${X(p.t).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(' ');
       S.push(`<polyline points="${pline}" fill="none" stroke="${se[2]}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`);
       if(key==='w'){ const al=C.filter(p=>p.adj!=null).map(p=>`${X(p.t).toFixed(1)},${Y(p.adj).toFixed(1)}`).join(' '); if(al) S.push(`<polyline points="${al}" fill="none" stroke="var(--s3)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round"/>`); }
-      C.forEach(p=>{ if(p[key]!=null) S.push(`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p[key]).toFixed(1)}" r="2.6" fill="${se[2]}"/>`);});
-      const pres=C.filter(p=>p[key]!=null),last=pres[pres.length-1],first=pres[0];
-      const fm=v=>v.toFixed(1).replace('.',',');
+      pres.forEach(p=>S.push(`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p[key]).toFixed(1)}" r="2.6" fill="${se[2]}"/>`));
+      const last=pres[pres.length-1],first=pres[0];
+      const fm=v=>isFi?Math.round(v).toString():v.toFixed(1).replace('.',',');
+      const unit=isFi?'g':se[3];
       S.push(`<circle cx="${X(last.t).toFixed(1)}" cy="${Y(last[key]).toFixed(1)}" r="4.2" fill="${se[2]}" stroke="var(--surface-1)" stroke-width="2"/>`);
-      S.push(`<text x="${W-PR+11}" y="${(Y(last[key])+2).toFixed(1)}" class="dl">${fm(last[key])}<tspan class="pu"> ${se[3]}</tspan></text>`);
-      S.push(`<text x="${W-PR+11}" y="${(Y(last[key])+19).toFixed(1)}" class="dl0">${last[key]-first[key]>=0?'+':'−'}${Math.abs(last[key]-first[key]).toFixed(2).replace('.',',')} ${se[3]}</text>`);
-      S.push(`<text x="${PL+4}" y="${(Y(first[key])-10).toFixed(1)}" class="dl0">${fm(first[key])}</text>`);
+      S.push(`<text x="${W-PR+11}" y="${(Y(last[key])+2).toFixed(1)}" class="dl">${fm(last[key])}<tspan class="pu"> ${unit}</tspan></text>`);
+      if(isFi){ const avg=pres.reduce((s,p)=>s+p.fi,0)/pres.length;
+        S.push(`<text x="${W-PR+11}" y="${(Y(last[key])+19).toFixed(1)}" class="dl0">moy. ${Math.round(avg)} g</text>`); }
+      else {
+        S.push(`<text x="${W-PR+11}" y="${(Y(last[key])+19).toFixed(1)}" class="dl0">${last[key]-first[key]>=0?'+':'−'}${Math.abs(last[key]-first[key]).toFixed(2).replace('.',',')} ${se[3]}</text>`);
+        S.push(`<text x="${PL+4}" y="${(Y(first[key])-10).toFixed(1)}" class="dl0">${fm(first[key])}</text>`);
+      }
     });
-    const yb=PT+2*(PH+GAP)-GAP;
+    const yb=PT+SER.length*(PH+GAP)-GAP;
     spaced(ticks,X,46).forEach(t=>S.push(`<text x="${X(t).toFixed(1)}" y="${yb+18}" class="tk" text-anchor="middle">${fshort(t)}</text>`));
     S.push(`<line class="crs" id="${id}crs" x1="0" x2="0" y1="${PT-12}" y2="${yb}" style="opacity:0"/>`);
-    for(let i=0;i<2;i++) S.push(`<circle id="${id}h${i}" r="5" fill="var(--s${i+1})" stroke="var(--surface-1)" stroke-width="2" style="opacity:0"/>`);
+    SER.forEach((se,i)=>S.push(`<circle id="${id}h${i}" r="5" fill="${se[2]}" stroke="var(--surface-1)" stroke-width="2" style="opacity:0"/>`));
     S.push(`<rect id="${id}hit" x="${PL}" y="${PT-12}" width="${W-PL-PR}" height="${yb-PT+12}" fill="transparent"/>`);
-    return {svg:`<svg id="svg${id}" viewBox="0 0 ${W} ${yb+PB}" width="100%">${S.join('')}</svg>`,X,yy,W};
+    return {svg:`<svg id="svg${id}" viewBox="0 0 ${W} ${yb+PB}" width="100%">${S.join('')}</svg>`,X,yy,W,keys:SER.map(s=>s[1])};
   }
-  function histHover(id,C,P){
+  function histHover(id,C,P,FI){
     const svg=document.getElementById('svg'+id), tip=document.getElementById('tip'+id);
     const hit=document.getElementById(id+'hit'),crs=document.getElementById(id+'crs');
-    const h=[0,1].map(i=>document.getElementById(id+'h'+i));
+    const h=P.keys.map((_,i)=>document.getElementById(id+'h'+i));
     if(!hit) return;
+    // une entrée par date : pesée (poids, MG) et/ou fibres du jour
+    const byT=new Map();
+    C.forEach(p=>byT.set(p.t,{...(byT.get(p.t)||{}),t:p.t,w:p.w,f:p.f}));
+    (FI||[]).forEach(p=>byT.set(p.t,{...(byT.get(p.t)||{}),t:p.t,fi:p.fi}));
+    const R=[...byT.values()].sort((a,b)=>a.t-b.t);
+    if(!R.length) return;
     const move=e=>{const r=svg.getBoundingClientRect(),sx=(e.clientX-r.left)*P.W/r.width;
-      let best=C[0]; for(const p of C) if(Math.abs(P.X(p.t)-sx)<Math.abs(P.X(best.t)-sx)) best=p;
+      let best=R[0]; for(const p of R) if(Math.abs(P.X(p.t)-sx)<Math.abs(P.X(best.t)-sx)) best=p;
       const x=P.X(best.t); crs.setAttribute('x1',x); crs.setAttribute('x2',x); crs.style.opacity=1;
-      [best.w,best.f].forEach((v,i)=>{ if(v==null){h[i].style.opacity=0;return;} h[i].setAttribute('cx',x);h[i].setAttribute('cy',P.yy[i](v));h[i].style.opacity=1;});
-      tip.innerHTML=`<b>${fdate(best.t)}</b><div><span><i style="background:var(--s1)"></i>Poids</span><span>${best.w.toFixed(2).replace('.',',')} kg</span></div>`+(best.f!=null?`<div><span><i style="background:var(--s2)"></i>Masse grasse</span><span>${best.f.toFixed(1).replace('.',',')} kg</span></div><div><span>Taux de graisse</span><span>${(100*best.f/best.w).toFixed(1).replace('.',',')} %</span></div>`:'');
+      P.keys.forEach((k,i)=>{ const v=best[k]; if(v==null){h[i].style.opacity=0;return;} h[i].setAttribute('cx',x);h[i].setAttribute('cy',P.yy[i](v));h[i].style.opacity=1;});
+      let html=`<b>${fdate(best.t)}</b>`;
+      if(best.w!=null) html+=`<div><span><i style="background:var(--s1)"></i>Poids</span><span>${best.w.toFixed(2).replace('.',',')} kg</span></div>`;
+      if(best.w!=null&&best.f!=null) html+=`<div><span><i style="background:var(--s2)"></i>Masse grasse</span><span>${best.f.toFixed(1).replace('.',',')} kg</span></div><div><span>Taux de graisse</span><span>${(100*best.f/best.w).toFixed(1).replace('.',',')} %</span></div>`;
+      if(best.fi!=null) html+=`<div><span><i style="background:var(--s4)"></i>Fibres</span><span>${best.fi.toFixed(1).replace('.',',')} g</span></div>`;
+      tip.innerHTML=html;
       placeTip(tip,x*r.width/P.W);};
     hit.addEventListener('mousemove',move);
     hit.addEventListener('mouseleave',()=>{tip.style.opacity=0;crs.style.opacity=0;h.forEach(c=>c.style.opacity=0);});
@@ -352,9 +377,9 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
 
   function renderHist() {
     const hc = document.getElementById('histCw');
-    const HP = histPanel('H', seed.history, hc.clientWidth);
+    const HP = histPanel('H', seed.history, hc.clientWidth, seed.fiber, seed.fiberTarget);
     hc.innerHTML = HP.svg + `<div class="tip" id="tipH"></div>`;
-    histHover('H', seed.history, HP);
+    histHover('H', seed.history, HP, seed.fiber);
   }
   const hasHist = seed.history && seed.history.length >= 2;
   if (hasHist) {

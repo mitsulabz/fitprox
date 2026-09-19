@@ -59,6 +59,21 @@
     }
     pts.sort((a, b) => a.t - b.t);
     const history = pts.filter((pt) => pt.t >= J1); // jusqu'a la derniere pesee (aujourd'hui)
+    // fibres par jour (historique réel), si le suivi des fibres est activé ; aujourd'hui exclu (journée en cours)
+    const _d = new Date(); const todayUTC = Date.UTC(_d.getFullYear(), _d.getMonth(), _d.getDate());
+    const fiber: { t: number; fi: number }[] = [];
+    let kSum = 0;
+    if (p.trackFiber) for (const k of Object.keys(days)) {
+      const fds: any[] = days[k]?.foods ?? [];
+      if (!fds.some((f: any) => f.fi != null)) continue;
+      const parts = k.split('/').map(Number); if (parts.length !== 3) continue;
+      const t = Date.UTC(parts[2], parts[1] - 1, parts[0]);
+      if (t < J1 || t >= todayUTC) continue;
+      fiber.push({ t, fi: +fds.reduce((s: number, f: any) => s + (f.fi || 0), 0).toFixed(1) });
+      kSum += fds.reduce((s: number, f: any) => s + (f.k || 0), 0);
+    }
+    fiber.sort((a, b) => a.t - b.t);
+    const fiberTarget = Math.max(25, Math.round(14 * (fiber.length ? kSum / fiber.length : 1900) / 1000));
     const last = pts[pts.length - 1];
     const W0 = last?.w || nf(p.weight) || 80;
     const lastBf = last && last.f ? (last.f / last.w * 100) : (nf(p.bf) || 25);
@@ -80,7 +95,7 @@
     const _t = new Date();
     const todayMs = Date.UTC(_t.getFullYear(), _t.getMonth(), _t.getDate());
     return initGraphViz(root, { W0, F0, BASE0, history, waterBanner, saved, onSave, measured: pts, todayMs, reconciliation,
-      owner: isOwner(uid), j1Label, baseSource: (st as any).source ?? 'mesure' });
+      owner: isOwner(uid), j1Label, baseSource: (st as any).source ?? 'mesure', fiber, fiberTarget });
   });
 </script>
 
@@ -96,7 +111,7 @@
     --text-secondary: var(--c-text2);
     --text-muted: var(--c-text3);
     --line: var(--c-border);
-    --s1:#2a78d6; --s2:#eb6834; --s3:#7a5cd6; --band:#2a78d633;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#7a5cd6; --s4:#2e9e5b; --band:#2a78d633;
     margin:0; color:var(--text-primary);
     font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     padding:20px 14px calc(90px + env(safe-area-inset-bottom, 0px)); min-height:100vh;

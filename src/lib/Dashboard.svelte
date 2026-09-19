@@ -260,7 +260,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V14.4";
+  const BUILD = "V14.5";
   // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
   // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
   async function hardReload() {
@@ -483,7 +483,7 @@
           <div class="food-item">
             <div class="food-nm">
               <span class="food-n">{food.n}</span>
-              <span class="food-m">P {Math.round(food.p ?? 0)}g · G {Math.round(food.g ?? 0)}g · L {Math.round(food.l ?? 0)}g{#if trackFiber && food.fi != null} · F {Math.round(food.fi)}g{/if}</span>
+              <span class="food-m">P {Math.round(food.p ?? 0)}g · G {Math.round(food.g ?? 0)}g · L {Math.round(food.l ?? 0)}g{trackFiber && food.fi != null ? ' · F ' + Math.round(food.fi) + 'g' : ''}</span>
             </div>
             <span class="food-k">{Math.round(food.k)} kcal</span>
             <button class="food-del" onclick={() => removeFood(i)} aria-label="Supprimer">
@@ -568,7 +568,7 @@
         {/if}
       </div>
       {#if day.foods.length}
-      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{#if trackFiber && day.fi != null} · F {Math.round(day.fi)}g{/if}{#if day.deficit !== null} · <span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:{day.gFat > 0 ? 'var(--c-red)' : 'var(--c-green)'}">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}</div>
+      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{trackFiber ? ' · F ' + (day.fi != null ? Math.round(day.fi) + 'g' : '–') : ''}{#if day.deficit !== null}{' · '}<span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:{day.gFat > 0 ? 'var(--c-red)' : 'var(--c-green)'}">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}</div>
       {/if}
     </summary>
     <div class="hist-foods">
@@ -576,7 +576,7 @@
       <div class="hist-food-row">
         <div class="food-nm">
           <span class="food-n">{f.n}</span>
-          <span class="food-m">P {Math.round(f.p ?? 0)}g · G {Math.round(f.g ?? 0)}g · L {Math.round(f.l ?? 0)}g{#if trackFiber && f.fi != null} · F {Math.round(f.fi)}g{/if}</span>
+          <span class="food-m">P {Math.round(f.p ?? 0)}g · G {Math.round(f.g ?? 0)}g · L {Math.round(f.l ?? 0)}g{trackFiber && f.fi != null ? ' · F ' + Math.round(f.fi) + 'g' : ''}</span>
         </div>
         <span class="food-k">{Math.round(f.k)} kcal</span>
         <button class="food-del" onclick={() => removeFood(fi, day.key)} aria-label="Supprimer">
