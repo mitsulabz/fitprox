@@ -290,7 +290,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     {/if}
     {#if histBase && histBase.ok}
       <div class="hist-base">
-        📚 <b>Base historique</b> : <b>{histBase.measured} kcal</b> ± {histBase.measuredSigma} à {String(histBase.poidsRef).replace('.', ',')} kg (poids moyen){#if histBase.atNow} · ≈ <b>{histBase.atNow} kcal</b> à ton poids actuel ({String(histBase.nowW).replace('.', ',')} kg){/if}
+        📚 <b>Base historique</b> : <b>{histBase.measured} kcal</b> ± {histBase.measuredSigma} à {String(histBase.poidsRef).replace('.', ',')} kg (poids moyen de la période){#if histBase.atNow}&nbsp;· ≈ <b>{histBase.atNow} kcal</b> à ton poids actuel ({String(histBase.nowW).replace('.', ',')} kg, moyenne des 7 derniers jours){/if}
         <div class="recalib-sub">Tout l'historique : du {histBase.from} au {histBase.to} · {histBase.days} j loggés · {histBase.weighIns} pesées · perte {String(histBase.lossPerWeek).replace('.', ',')} kg/sem. À titre d'information : c'est ta dépense moyenne sur toute la période, qui mélange des phases différentes (poids, activité). La base utilisée reste celle ci-dessus.</div>
       </div>
     {/if}
@@ -353,7 +353,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     </button>
   </div>
 
-  <div class="version caption">FitProX · V14.3</div>
+  <div class="version caption">FitProX · V14.4</div>
 </div>
 
 {#if showSetup}
