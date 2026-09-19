@@ -71,9 +71,7 @@
       fiber.push({ t, fi: +fds.reduce((s: number, f: any) => s + (f.fi || 0), 0).toFixed(1) });
     }
     fiber.sort((a, b) => a.t - b.t);
-    // objectif fibres réglé dans Profil : « au moins » (défaut 30 g) ou « au plus » (limite)
-    const fiberTarget = Math.max(1, Math.round(nf(p.fiberGoal) || 30));
-    const fiberMax = p.fiberMode === 'max';
+    const fiberTarget = 25; // au moins 25 g/jour pour tous (OMS 2023, EFSA)
     const last = pts[pts.length - 1];
     const W0 = last?.w || nf(p.weight) || 80;
     const lastBf = last && last.f ? (last.f / last.w * 100) : (nf(p.bf) || 25);
@@ -95,7 +93,7 @@
     const _t = new Date();
     const todayMs = Date.UTC(_t.getFullYear(), _t.getMonth(), _t.getDate());
     return initGraphViz(root, { W0, F0, BASE0, history, waterBanner, saved, onSave, measured: pts, todayMs, reconciliation,
-      owner: isOwner(uid), j1Label, baseSource: (st as any).source ?? 'mesure', fiber, fiberTarget, fiberMax });
+      owner: isOwner(uid), j1Label, baseSource: (st as any).source ?? 'mesure', fiber, fiberTarget });
   });
 </script>
 
