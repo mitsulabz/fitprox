@@ -311,7 +311,7 @@ ${OWNER ? `<p class="note"><strong>Le coût des activités.</strong> Valeurs par
       ticks.forEach(t=>S.push(`<line x1="${X(t).toFixed(1)}" x2="${X(t).toFixed(1)}" y1="${top}" y2="${top+PH}" class="grv"/>`));
       if(isFi&&fiT){
         S.push(`<line x1="${PL}" x2="${W-PR}" y1="${Y(fiT).toFixed(1)}" y2="${Y(fiT).toFixed(1)}" class="ref"/>`);
-        S.push(`<text x="${PL+4}" y="${(Y(fiT)-4).toFixed(1)}" class="reftx" text-anchor="start">cible ≈ ${fiT} g</text>`);
+        S.push(`<text x="${PL+4}" y="${(Y(fiT)-4).toFixed(1)}" class="reftx" text-anchor="start">${seed.fiberMax?'limite':'objectif'} ${fiT} g</text>`);
       }
       const pres=D.filter(p=>p[key]!=null);
       const pline=pres.map(p=>`${X(p.t).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(' ');

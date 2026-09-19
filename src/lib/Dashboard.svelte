@@ -38,6 +38,9 @@
   const owner = $derived(isOwner(uid));
   const J1_DS = $derived(userJ1(uid, $appData));
   const trackFiber = $derived(!!($appData as any)?.profile?.trackFiber);
+  // objectif fibres par utilisateur : « au moins » (défaut 30 g, repère ANSES) ou « au plus » (limite médicale)
+  const fiberGoal = $derived(Math.max(1, Math.round(nf(($appData as any)?.profile?.fiberGoal) || 30)));
+  const fiberMax = $derived(($appData as any)?.profile?.fiberMode === 'max');
   const END_DS = $derived(userEnd(uid));
   const avgMacros = $derived.by(() => {
     const j1 = parseJour(J1_DS);
@@ -122,7 +125,7 @@
     const p = Math.round(2.2 * lean); // 2,2 g/kg de masse maigre (anti-fonte, contexte cortisone)
     const l = Math.round(0.6 * w);
     const g = Math.max(0, Math.round((kcal - p * 4 - l * 9) / 4));
-    const fi = Math.max(25, Math.round(14 * kcal / 1000)); // 14 g / 1000 kcal, 25 g minimum
+    const fi = fiberGoal; // réglé dans Profil, indépendant des calories
     return { p, g, l, fi };
   });
 
@@ -260,7 +263,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V14.5";
+  const BUILD = "V14.6";
   // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
   // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
   async function hardReload() {
@@ -428,15 +431,15 @@
       { key: 'p', label: $t.dashboard.proteins, color: 'var(--c-accent)', cible: mCible.p },
       { key: 'g', label: $t.dashboard.carbs,    color: 'var(--c-blue)',   cible: mCible.g },
       { key: 'l', label: $t.dashboard.fats,     color: 'var(--c-red)',    cible: mCible.l },
-      ...(trackFiber ? [{ key: 'fi', label: 'Fibres', color: 'var(--c-green)', cible: mCible.fi }] : []),
+      ...(trackFiber ? [{ key: 'fi', label: 'Fibres', color: 'var(--c-green)', cible: mCible.fi, max: fiberMax }] : []),
     ] as m}
     {@const avg = (avgMacros as any)[m.key]}
     <div class="card macro-card">
       <div class="label">{m.label}</div>
       <div class="progress-bar" style="margin:10px 0 8px">
-        <div class="progress-fill" style="width:{pct(avg ?? 0, m.cible)}%;background:{m.color};opacity:.65"></div>
+        <div class="progress-fill" style="width:{pct(avg ?? 0, m.cible)}%;background:{(m as any).max && (avg ?? 0) > m.cible ? 'var(--c-red)' : m.color};opacity:.65"></div>
       </div>
-      <div class="macro-val">{avg ?? '—'}<span class="macro-target">/{m.cible}g</span></div>
+      <div class="macro-val">{avg ?? '—'}<span class="macro-target">/{m.cible}g{(m as any).max ? ' max' : ''}</span></div>
     </div>
     {/each}
   </div>
@@ -449,15 +452,15 @@
       { key: 'p', label: $t.dashboard.proteins, color: 'var(--c-accent)', cible: mCible.p },
       { key: 'g', label: $t.dashboard.carbs,    color: 'var(--c-blue)',   cible: mCible.g },
       { key: 'l', label: $t.dashboard.fats,     color: 'var(--c-red)',    cible: mCible.l },
-      ...(trackFiber ? [{ key: 'fi', label: 'Fibres', color: 'var(--c-green)', cible: mCible.fi }] : []),
+      ...(trackFiber ? [{ key: 'fi', label: 'Fibres', color: 'var(--c-green)', cible: mCible.fi, max: fiberMax }] : []),
     ] as m}
     {@const actual = Math.round(macros[m.key as keyof typeof macros])}
     <div class="card macro-card">
       <div class="label">{m.label}</div>
       <div class="progress-bar" style="margin:10px 0 8px">
-        <div class="progress-fill" style="width:{pct(actual, m.cible)}%;background:{m.color}"></div>
+        <div class="progress-fill" style="width:{pct(actual, m.cible)}%;background:{(m as any).max && actual > m.cible ? 'var(--c-red)' : m.color}"></div>
       </div>
-      <div class="macro-val">{actual}<span class="macro-target">/{m.cible}g</span></div>
+      <div class="macro-val">{actual}<span class="macro-target">/{m.cible}g{(m as any).max ? ' max' : ''}</span></div>
     </div>
     {/each}
   </div>

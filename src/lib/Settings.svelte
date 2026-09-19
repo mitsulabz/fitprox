@@ -11,10 +11,13 @@
   // Suivi des fibres (option du profil) : ajoute une 4e macro dans Suivi, la saisie et les listes
   const trackFiber = $derived(!!($appData as any)?.profile?.trackFiber);
   let fiberStatus = $state('');
-  async function toggleFiber() {
+  const fiberGoal = $derived(Math.max(1, Math.round(nf(($appData as any)?.profile?.fiberGoal) || 30)));
+  const fiberMax = $derived(($appData as any)?.profile?.fiberMode === 'max');
+  function toggleFiber() { saveFiber({ trackFiber: !trackFiber }); }
+  async function saveFiber(patch: Record<string, unknown>) {
     const s = $session; const data = $appData as any;
     if (!s || !data) return;
-    const newData = { ...data, profile: { ...(data.profile ?? {}), trackFiber: !trackFiber } };
+    const newData = { ...data, profile: { ...(data.profile ?? {}), ...patch } };
     appData.set(newData);
     try { await saveAppState(s.access_token, s.user.id, newData); fiberStatus = ''; }
     catch { fiberStatus = 'Erreur de sauvegarde'; }
@@ -306,7 +309,17 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
       <span class="body">Suivre les fibres</span>
       <div class="pill">{trackFiber ? 'Activé' : 'Désactivé'}</div>
     </button>
-    <p class="pf-hint">Ajoute les fibres comme 4ᵉ macro : cible ≈ 14 g pour 1000 kcal (25 g minimum). Elles sont reprises de la recherche, du scan, de l'IA et de ta liste d'aliments ; les repas notés avant n'en ont pas toujours.</p>
+    {#if trackFiber}
+      <label class="pf-row"><span>Objectif fibres (g/jour)</span><input type="number" inputmode="numeric" min="1" max="100" step="1" value={fiberGoal}
+        onchange={(e) => saveFiber({ fiberGoal: Math.max(1, Math.min(100, Math.round(+(e.target as HTMLInputElement).value || 30))) })} /></label>
+      <div class="pf-row"><span>Type d'objectif</span>
+        <div class="seg2">
+          <button class:on={!fiberMax} onclick={() => saveFiber({ fiberMode: 'min' })}>Au moins</button>
+          <button class:on={fiberMax} onclick={() => saveFiber({ fiberMode: 'max' })}>Au plus</button>
+        </div>
+      </div>
+    {/if}
+    <p class="pf-hint">Ajoute les fibres comme 4ᵉ macro. Par défaut : <b>au moins 30 g/jour</b> (repère ANSES pour les adultes), quelles que soient les calories. Si ton médecin te demande de les limiter (maladie inflammatoire de l'intestin, régime pauvre en résidus…), choisis <b>« Au plus »</b> et indique sa limite : la barre passe au rouge en cas de dépassement. Les fibres sont reprises de la recherche, du scan, de l'IA et de ta liste d'aliments.</p>
     {#if fiberStatus}<div class="import-status">{fiberStatus}</div>{/if}
   </div>
 
@@ -353,7 +366,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     </button>
   </div>
 
-  <div class="version caption">FitProX · V14.5</div>
+  <div class="version caption">FitProX · V14.6</div>
 </div>
 
 {#if showSetup}
@@ -385,5 +398,8 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
 .pf-row input { width:110px; padding:6px 8px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text); font-size:14px; text-align:right; font-family:var(--font); }
 .pf-row input:focus { outline:none; border-color:var(--c-accent); }
 .save-btn { text-align:center; justify-content:center; padding:12px; background:var(--c-accent); color:var(--c-accent-fg); border:none; font-size:14px; font-weight:600; cursor:pointer; font-family:var(--font); border-radius:var(--r-md); }
+.seg2 { display:flex; background:var(--c-surface2); border-radius:9px; padding:2px; gap:2px; }
+.seg2 button { border:0; background:transparent; color:var(--c-text2); font-size:13px; font-weight:500; padding:6px 11px; border-radius:7px; cursor:pointer; font-family:var(--font); }
+.seg2 button.on { background:var(--c-accent); color:var(--c-accent-fg); }
 .alt-btn { background:transparent; color:var(--c-accent); border:1px solid var(--c-accent); margin-top:6px; }
 </style>
