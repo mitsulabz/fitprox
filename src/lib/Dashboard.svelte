@@ -262,7 +262,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V14.7";
+  const BUILD = "V14.8";
   // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
   // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
   async function hardReload() {

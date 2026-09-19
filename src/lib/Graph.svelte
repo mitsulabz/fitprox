@@ -112,7 +112,8 @@
     --s1:#2a78d6; --s2:#eb6834; --s3:#7a5cd6; --s4:#2e9e5b; --band:#2a78d633;
     margin:0; color:var(--text-primary);
     font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    padding:20px 14px calc(90px + env(safe-area-inset-bottom, 0px)); min-height:100vh;
+    /* même marge haute que les autres onglets (.scroll-area + en-tête) : sous l'encoche / la barre d'état de l'iPhone */
+    padding:calc(max(16px, env(safe-area-inset-top, 0px)) + 20px) 14px calc(90px + env(safe-area-inset-bottom, 0px)); min-height:100vh;
   }
   .graph-root * { box-sizing:border-box; }
   .graph-root .wrap { max-width:1020px; margin:0 auto; }
