@@ -136,7 +136,7 @@ export function estimateBase(timeline, prior, opts = {}) {
   const skipUntil = hasStart ? opts.startT + EST_WATER_SKIP_DAYS * 86400000 : -Infinity;
   const win = timeline.list
     .filter(r => r.logged && !r.isToday && !r.isFuture && r.t >= skipUntil)
-    .slice(-EST_WINDOW);
+    .slice(-(opts.window ?? EST_WINDOW)); // window: Infinity = tout l'historique
   const nDays = win.length;
   const t0 = nDays ? win[0].t : 0, tEnd = nDays ? win[nDays - 1].t : 0;
   const pts = timeline.list
@@ -176,7 +176,7 @@ export function estimateBase(timeline, prior, opts = {}) {
     weightMeasured = wm / (wp + wm);
   }
   return {
-    ok: true, days: nDays, weighIns: nW,
+    ok: true, days: nDays, weighIns: nW, t0, tEnd,
     base: Math.round(est), sigma: Math.round(sigma),
     confidence: sigma < 170 ? 'bonne' : sigma < 300 ? 'moyenne' : 'faible',
     measured: Math.round(measured), measuredSigma: Math.round(measSigma),

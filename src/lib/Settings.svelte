@@ -8,6 +8,18 @@
 
   const uid = $derived($session?.user?.id ?? '');
 
+  // Suivi des fibres (option du profil) : ajoute une 4e macro dans Suivi, la saisie et les listes
+  const trackFiber = $derived(!!($appData as any)?.profile?.trackFiber);
+  let fiberStatus = $state('');
+  async function toggleFiber() {
+    const s = $session; const data = $appData as any;
+    if (!s || !data) return;
+    const newData = { ...data, profile: { ...(data.profile ?? {}), trackFiber: !trackFiber } };
+    appData.set(newData);
+    try { await saveAppState(s.access_token, s.user.id, newData); fiberStatus = ''; }
+    catch { fiberStatus = 'Erreur de sauvegarde'; }
+  }
+
   function toggleTheme() { theme.update(v => v === "dark" ? "light" : "dark"); }
 
   function exportData() {
@@ -28,7 +40,7 @@
     const data = $appData as any;
     if (!data) return;
     const days = data.days ?? {};
-    const rows = ['date,kcal_mangees,proteines_g,glucides_g,lipides_g,sport_kcal_actives,poids_kg,masse_grasse_pct'];
+    const rows = ['date,kcal_mangees,proteines_g,glucides_g,lipides_g,fibres_g,sport_kcal_actives,poids_kg,masse_grasse_pct'];
     const [jd, jm, jy] = userJ1(uid, data).split('/').map(Number);
     const j1 = new Date(jy, jm - 1, jd); // J1 de l'utilisateur (propriétaire : 22 juin 2026)
     const end = new Date(); end.setHours(0, 0, 0, 0);
@@ -46,6 +58,7 @@
         logged ? +sum('p').toFixed(1) : '',
         logged ? +sum('g').toFixed(1) : '',
         logged ? +sum('l').toFixed(1) : '',
+        fds.some((f: any) => f.fi != null) ? +sum('fi').toFixed(1) : '',
         logged ? Math.round(nf(dd.extraKcal)) : '',
         w > 0 ? w : '',
         bf > 0 ? bf : '',
@@ -116,7 +129,7 @@
     if ($appData && !baseLoaded) { syncForm(); baseLoaded = true; }
   });
 
-  const recalib = $derived.by(() => {
+  const timelineAll = $derived.by(() => {
     const data = $appData as any; if (!data) return null;
     const days = data.days ?? {};
     const dateList = Object.keys(days).map((ds: string) => ({ ds, t: dsToMs(ds) })).filter((x: any) => !isNaN(x.t)).sort((a: any, b: any) => a.t - b.t);
@@ -124,8 +137,22 @@
       const dd: any = days[ds] ?? {}; const fds = dd.foods ?? [];
       return { weight: nf(dd.weight), bf: nf(dd.bf), eaten: fds.reduce((s: number,f: any)=>s+(f.k||0),0), gluc: fds.reduce((s: number,f: any)=>s+(f.g||0),0), prot: fds.reduce((s: number,f: any)=>s+(f.p||0),0), extraKcal: dd.extraKcal ?? 0, sportKcal: 0, libre: !!dd.libre, logged: fds.length > 0 };
     };
-    const tl = buildTimeline({ dateList, settingsLog: effectiveSettingsLog(uid, data), todayTime: todayMs, dayFrac: 1, info });
-    return estimateBase(tl, prior, { startT: dsToMs(J1_DS) }) as any;
+    return buildTimeline({ dateList, settingsLog: effectiveSettingsLog(uid, data), todayTime: todayMs, dayFrac: 1, info }) as any;
+  });
+  const recalib = $derived(timelineAll ? estimateBase(timelineAll, prior, { startT: dsToMs(J1_DS) }) as any : null);
+
+  /* Base historique (information seulement) : même bilan énergétique, mais sur TOUT l'historique
+     depuis J1 + 7 jours, sans mélange avec le réglage. Elle vaut au poids moyen de la période ;
+     on la ramène aussi au poids actuel (−12 kcal par kg perdu depuis). */
+  const histBase = $derived.by(() => {
+    if (!timelineAll) return null;
+    const r: any = estimateBase(timelineAll, null, { startT: dsToMs(J1_DS), window: Infinity });
+    if (!r.ok) return r;
+    const last = [...timelineAll.list].reverse().find((x: any) => !x.isFuture && (x.pm7 != null || x.weight > 0));
+    const nowW = last ? (last.pm7 ?? last.weight) : null;
+    const fmt = (t: number) => new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    return { ...r, from: fmt(r.t0), to: fmt(r.tEnd), nowW: nowW ? +(+nowW).toFixed(1) : null,
+      atNow: nowW ? Math.round(r.measured - 12 * (r.poidsRef - nowW)) : null };
   });
 
   /* Date d'effet : aujourd'hui par défaut (le passé reste figé).
@@ -261,10 +288,26 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     {:else if recalib && !recalib.ok}
       <p class="pf-hint">📏 Affinage par tes mesures dès 7 jours loggés et 4 pesées, hors 1re semaine de régime (où la perte est surtout de l'eau) — {recalib.reason}.</p>
     {/if}
+    {#if histBase && histBase.ok}
+      <div class="hist-base">
+        📚 <b>Base historique</b> : <b>{histBase.measured} kcal</b> ± {histBase.measuredSigma} à {String(histBase.poidsRef).replace('.', ',')} kg (poids moyen){#if histBase.atNow} · ≈ <b>{histBase.atNow} kcal</b> à ton poids actuel ({String(histBase.nowW).replace('.', ',')} kg){/if}
+        <div class="recalib-sub">Tout l'historique : du {histBase.from} au {histBase.to} · {histBase.days} j loggés · {histBase.weighIns} pesées · perte {String(histBase.lossPerWeek).replace('.', ',')} kg/sem. À titre d'information : c'est ta dépense moyenne sur toute la période, qui mélange des phases différentes (poids, activité). La base utilisée reste celle ci-dessus.</div>
+      </div>
+    {/if}
     <button class="card save-btn" onclick={saveBaseForm}>Enregistrer la base (dès aujourd'hui)</button>
     <button class="card save-btn alt-btn" onclick={saveBaseAll}>Appliquer aussi au passé (depuis le J1)</button>
     <p class="pf-hint">« Dès aujourd'hui » fige le passé : à utiliser quand l'ancienne base était juste à l'époque. « Aussi au passé » recalcule tout l'historique : à utiliser quand l'ancienne base était une estimation de départ, jamais mesurée.</p>
     {#if baseStatus}<div class="import-status" class:success={baseStatus.startsWith('✓')}>{baseStatus}</div>{/if}
+  </div>
+
+  <div class="section-title">Suivi nutritionnel</div>
+  <div class="section">
+    <button class="card setting-row" onclick={toggleFiber}>
+      <span class="body">Suivre les fibres</span>
+      <div class="pill">{trackFiber ? 'Activé' : 'Désactivé'}</div>
+    </button>
+    <p class="pf-hint">Ajoute les fibres comme 4ᵉ macro : cible ≈ 14 g pour 1000 kcal (25 g minimum). Elles sont reprises de la recherche, du scan, de l'IA et de ta liste d'aliments ; les repas notés avant n'en ont pas toujours.</p>
+    {#if fiberStatus}<div class="import-status">{fiberStatus}</div>{/if}
   </div>
 
   <div class="section-title">Apparence</div>
@@ -310,7 +353,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     </button>
   </div>
 
-  <div class="version caption">FitProX · V14.2</div>
+  <div class="version caption">FitProX · V14.3</div>
 </div>
 
 {#if showSetup}
@@ -337,6 +380,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
 .pf-hint { font-size:11px; color:var(--c-text3); margin:2px 2px 0; line-height:1.4; }
 .recalib-banner { font-size:12.5px; color:var(--c-text); background:var(--c-surface2); border:1px solid var(--c-border); border-radius:var(--r-md); padding:9px 11px; line-height:1.5; }
 .recalib-sub { font-size:11px; color:var(--c-text3); margin-top:2px; }
+.hist-base { font-size:12.5px; color:var(--c-text2); background:transparent; border:1px dashed var(--c-border); border-radius:var(--r-md); padding:9px 11px; line-height:1.5; }
 .recalib-btn { margin-top:6px; border:none; background:var(--c-accent); color:var(--c-accent-fg); font-size:12px; font-weight:600; padding:5px 12px; border-radius:7px; cursor:pointer; font-family:var(--font); }
 .pf-row input { width:110px; padding:6px 8px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text); font-size:14px; text-align:right; font-family:var(--font); }
 .pf-row input:focus { outline:none; border-color:var(--c-accent); }

@@ -7,6 +7,8 @@
   import { get } from 'svelte/store';
 
   let filter = $state('');
+
+  const trackFiber = $derived(!!($appData as any)?.profile?.trackFiber);
   let busy = $state(false);
   let shareMsg = $state('');
   const norm = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -104,7 +106,7 @@
           <div class="fav-info">
             <span class="fav-name">{fav.name}{#if sharingOn && !fav.shared}<span class="tag">perso</span>{/if}</span>
             <span class="fav-macros">
-              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g
+              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g{#if trackFiber && fav.fi != null && fav.fi !== ''} · F {+(+fav.fi).toFixed(1)}g{/if}
               <span class="muted">{fav.per === 'unit' ? '/portion' : '/100g'}</span>
             </span>
           </div>

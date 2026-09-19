@@ -20,8 +20,13 @@
   }
   const SUPABASE_URL = 'https://arydsxswhbgpfayjgtak.supabase.co';
 
-  type Food = { n: string; k: number; p: number; g: number; l: number };
-  type OFFProd = { n: string; k100: number; p100: number; g100: number; l100: number };
+  type Food = { n: string; k: number; p: number; g: number; l: number; fi?: number | null };
+  type OFFProd = { n: string; k100: number; p100: number; g100: number; l100: number; fi100: number | null };
+
+  // Fibres : toujours enregistrées quand on les connaît ; affichées si l'option du profil est active
+  const trackFiber = $derived(!!($appData as any)?.profile?.trackFiber);
+  const fiOk = (v: any) => v != null && v !== '' && isFinite(+v);
+  const fiTxt = (v: any) => (fiOk(v) ? ` · F ${+(+v).toFixed(1)}g` : '');
 
   let { dayKey, onclose }: { dayKey: string; onclose: () => void } = $props();
 
@@ -42,6 +47,7 @@
   let manP = $state('');
   let manG = $state('');
   let manL = $state('');
+  let manFi = $state('');
 
   // IA
   let aiText = $state('');
@@ -74,7 +80,8 @@
     const days = data.days ?? {};
     const day = days[dayKey] ?? {};
     const foods = Array.isArray(day.foods) ? [...day.foods] : [];
-    foods.push({ n: food.n, k: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1) });
+    const fi = fiOk(food.fi) ? { fi: +(+food.fi!).toFixed(1) } : {};
+    foods.push({ n: food.n, k: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1), ...fi });
 
     // Auto-ajout aux favoris (sauf si l'aliment vient déjà de la liste)
     const favs: any[] = Array.isArray(data.favorites) ? [...data.favorites] : [];
@@ -82,7 +89,7 @@
     if (!skipFav) {
       const key = foodKey(food.n, '100');
       if (!favs.some((f: any) => foodKey(f.name, f.per) === key)) {
-        newFav = { name: food.n, per: '100', kcal: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1), img: '' };
+        newFav = { name: food.n, per: '100', kcal: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1), ...fi, img: '' };
         favs.unshift(newFav);
       }
     }
@@ -105,12 +112,13 @@
     commitFood({
       n: n > 1 ? `${fav.name} ×${n}` : fav.name,
       k: (fav.kcal ?? 0) * n, p: (fav.p ?? 0) * n, g: (fav.g ?? 0) * n, l: (fav.l ?? 0) * n,
+      fi: fiOk(fav.fi) ? +fav.fi * n : null,
     }, true, true);
   }
 
   function addOFF(prod: OFFProd, idx: number, qty: number) {
     const r = qty / 100;
-    commitFood({ n: `${prod.n} (${qty}g)`, k: prod.k100 * r, p: prod.p100 * r, g: prod.g100 * r, l: prod.l100 * r });
+    commitFood({ n: `${prod.n} (${qty}g)`, k: prod.k100 * r, p: prod.p100 * r, g: prod.g100 * r, l: prod.l100 * r, fi: prod.fi100 == null ? null : prod.fi100 * r });
   }
 
   async function searchOFF() {
@@ -128,6 +136,7 @@
           p100: Math.round((p.nutriments.proteins_100g ?? 0) * 10) / 10,
           g100: Math.round((p.nutriments.carbohydrates_100g ?? 0) * 10) / 10,
           l100: Math.round((p.nutriments.fat_100g ?? 0) * 10) / 10,
+          fi100: p.nutriments.fiber_100g == null ? null : Math.round(p.nutriments.fiber_100g * 10) / 10,
         }));
     } catch {}
     searching = false;
@@ -149,6 +158,7 @@
         p100: Math.round((nut.proteins_100g ?? 0) * 10) / 10,
         g100: Math.round((nut.carbohydrates_100g ?? 0) * 10) / 10,
         l100: Math.round((nut.fat_100g ?? 0) * 10) / 10,
+        fi100: nut.fiber_100g == null ? null : Math.round(nut.fiber_100g * 10) / 10,
       };
     } catch { scanError = 'Erreur réseau'; }
     scanLoading = false;
@@ -156,7 +166,7 @@
 
   function addManual() {
     if (!manName.trim() || !manKcal) return;
-    commitFood({ n: manName.trim(), k: +manKcal, p: +(manP || 0), g: +(manG || 0), l: +(manL || 0) });
+    commitFood({ n: manName.trim(), k: +manKcal, p: +(manP || 0), g: +(manG || 0), l: +(manL || 0), fi: manFi === '' || manFi == null ? null : +manFi });
   }
 
   async function estimateAI() {
@@ -170,7 +180,7 @@
         body: JSON.stringify({ action: 'estimate-food', text: aiText }),
       });
       const d = await r.json();
-      if (d.foods) aiResults = d.foods.map((f: any) => ({ n: f.name, k: f.kcal ?? 0, p: f.p ?? 0, g: f.g ?? 0, l: f.l ?? 0 }));
+      if (d.foods) aiResults = d.foods.map((f: any) => ({ n: f.name, k: f.kcal ?? 0, p: f.p ?? 0, g: f.g ?? 0, l: f.l ?? 0, fi: fiOk(f.fi) ? +f.fi : null }));
       else aiError = d.error ?? d.message ?? JSON.stringify(d);
     } catch { aiError = 'Erreur réseau'; }
     aiLoading = false;
@@ -209,7 +219,7 @@
             <div class="food-row">
               <div class="food-info">
                 <span class="food-name">{prod.n}</span>
-                <span class="food-macros">{prod.k100} kcal · P {prod.p100}g · G {prod.g100}g · L {prod.l100}g <span class="muted">/100g</span></span>
+                <span class="food-macros">{prod.k100} kcal · P {prod.p100}g · G {prod.g100}g · L {prod.l100}g{trackFiber ? fiTxt(prod.fi100) : ''} <span class="muted">/100g</span></span>
               </div>
               <div class="qty-row">
                 <input type="number" min="1" max="2000" step="10"
@@ -255,7 +265,7 @@
           <div class="food-row">
             <div class="food-info">
               <span class="food-name">{scanResult.n}</span>
-              <span class="food-macros">{scanResult.k100} kcal · P {scanResult.p100}g · G {scanResult.g100}g · L {scanResult.l100}g <span class="muted">/100g</span></span>
+              <span class="food-macros">{scanResult.k100} kcal · P {scanResult.p100}g · G {scanResult.g100}g · L {scanResult.l100}g{trackFiber ? fiTxt(scanResult.fi100) : ''} <span class="muted">/100g</span></span>
             </div>
             <div class="qty-row">
               <input type="number" min="1" max="2000" step="10" bind:value={scanQty} />
@@ -279,7 +289,7 @@
             <div class="food-row">
               <div class="food-info">
                 <span class="food-name">{fav.name}</span>
-                <span class="food-macros">{Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p??0).toFixed(1)}g · G {+(fav.g??0).toFixed(1)}g · L {+(fav.l??0).toFixed(1)}g <span class="muted">{fav.per === 'unit' ? '/portion' : '/100g'}</span></span>
+                <span class="food-macros">{Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p??0).toFixed(1)}g · G {+(fav.g??0).toFixed(1)}g · L {+(fav.l??0).toFixed(1)}g{trackFiber ? fiTxt(fav.fi) : ''} <span class="muted">{fav.per === 'unit' ? '/portion' : '/100g'}</span></span>
               </div>
               <div class="qty-row">
                 <input type="number" min="1" max="50" step="1"
@@ -316,6 +326,12 @@
               <label>Lipides (g)</label>
               <input type="number" min="0" step="0.1" placeholder="0" bind:value={manL} />
             </div>
+            {#if trackFiber}
+            <div class="field">
+              <label>Fibres (g)</label>
+              <input type="number" min="0" step="0.1" placeholder="0" bind:value={manFi} />
+            </div>
+            {/if}
           </div>
           <button type="submit" class="btn-accent full" disabled={!manName.trim() || !manKcal}>
             Ajouter au journal
@@ -335,7 +351,7 @@
           <button class="food-row fav-btn" onclick={() => { commitFood(food, false); aiResults = aiResults.filter((f) => f !== food); }}>
             <div class="food-info">
               <span class="food-name">{food.n}</span>
-              <span class="food-macros">{Math.round(food.k)} kcal · P {+food.p.toFixed(1)}g · G {+food.g.toFixed(1)}g · L {+food.l.toFixed(1)}g</span>
+              <span class="food-macros">{Math.round(food.k)} kcal · P {+food.p.toFixed(1)}g · G {+food.g.toFixed(1)}g · L {+food.l.toFixed(1)}g{trackFiber ? fiTxt(food.fi) : ''}</span>
             </div>
             <span class="add-icon">+</span>
           </button>
