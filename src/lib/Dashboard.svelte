@@ -262,7 +262,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V14.8";
+  const BUILD = "V14.9";
   // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
   // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
   async function hardReload() {
@@ -314,58 +314,61 @@
     saveAppState(s.access_token, s.user.id, newData);
   }
 
-  // ---- Graphe de poids : points saisis + moyenne glissante 7 jours ----
-  const weightSeries = $derived.by(() => {
-    const entries: { t: number; w: number }[] = [];
-    Object.entries((days as any) ?? {}).forEach(([k, d]: [string, any]) => {
-      const w = nf(d?.weight);
-      if (!w) return;
-      const parts = k.split('/').map(Number);
-      if (parts.length !== 3) return;
-      entries.push({ t: new Date(parts[2], parts[1]-1, parts[0]).getTime(), w });
-    });
-    entries.sort((a, b) => a.t - b.t);
-    if (entries.length < 2) return null;
-    // moyenne glissante 7 jours (fenêtre calendaire)
-    const avg = entries.map((e) => {
-      const win = entries.filter((x) => e.t - x.t >= 0 && e.t - x.t < 7 * 86400000);
-      return { t: e.t, w: win.reduce((s, x) => s + x.w, 0) / win.length };
-    });
-    const all = entries.map(e => e.w).concat(avg.map(a => a.w));
-    const min = Math.min(...all), max = Math.max(...all);
-    const pad = Math.max(0.4, (max - min) * 0.15);
-    const lo = min - pad, hi = max + pad;
-    const t0 = entries[0].t, t1 = entries[entries.length - 1].t || t0 + 1;
-    const X = (t: number) => t1 === t0 ? 0 : ((t - t0) / (t1 - t0)) * 300;
-    const Y = (w: number) => 80 - ((w - lo) / (hi - lo)) * 80;
-    const pts = entries.map(e => `${X(e.t).toFixed(1)},${Y(e.w).toFixed(1)}`).join(' ');
-    const avgPts = avg.map(a => `${X(a.t).toFixed(1)},${Y(a.w).toFixed(1)}`).join(' ');
-    const last = entries[entries.length - 1];
-    const lastAvg = avg[avg.length - 1];
-    const delta = +(last.w - entries[0].w).toFixed(1);
-    // serie masse grasse (echelle propre, superposee)
+  /* ---- Graphe de poids : même rendu que « Historique réel » (onglet Graph) ----
+     pesées brutes avec repères, sans la courbe du poids ajusté (glycogène). */
+  const weightChart = $derived.by(() => {
+    const pts: { t: number; w: number }[] = [];
     const bfE: { t: number; v: number }[] = [];
     Object.entries((days as any) ?? {}).forEach(([k, d]: [string, any]) => {
-      const v = nf(d?.bf);
-      if (!v) return;
       const parts = k.split('/').map(Number);
       if (parts.length !== 3) return;
-      bfE.push({ t: new Date(parts[2], parts[1]-1, parts[0]).getTime(), v });
+      const t = new Date(parts[2], parts[1] - 1, parts[0]).getTime();
+      const w = nf(d?.weight); if (w) pts.push({ t, w });
+      const v = nf(d?.bf); if (v) bfE.push({ t, v });
     });
-    bfE.sort((a, b) => a.t - b.t);
-    let bfPts = '', lastBf = 0;
-    if (bfE.length >= 2) {
-      const bmin = Math.min(...bfE.map(e => e.v)), bmax = Math.max(...bfE.map(e => e.v));
-      const bpad = Math.max(0.3, (bmax - bmin) * 0.15);
-      const blo = bmin - bpad, bhi = bmax + bpad;
-      const YB = (v: number) => 80 - ((v - blo) / (bhi - blo)) * 80;
-      bfPts = bfE.map(e => `${X(e.t).toFixed(1)},${YB(e.v).toFixed(1)}`).join(' ');
-      lastBf = bfE[bfE.length - 1].v;
-    } else if (bfE.length === 1) {
-      lastBf = bfE[0].v;
+    pts.sort((x, y) => x.t - y.t);
+    bfE.sort((x, y) => x.t - y.t);
+    if (pts.length < 2) return null;
+
+    const W = 320, PL = 30, PR = 58, PT = 14, PH = 96, PB = 20;
+    const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    const lo0 = Math.min(...pts.map(p => p.w)), hi0 = Math.max(...pts.map(p => p.w));
+    const mar = (hi0 - lo0) * 0.25 || 0.5;
+    const lo = lo0 - mar, hi = hi0 + mar;
+    const X = (t: number) => PL + (t1 === t0 ? 0 : (t - t0) / (t1 - t0) * (W - PL - PR));
+    const Y = (w: number) => PT + PH - (w - lo) / (hi - lo) * PH;
+
+    const step = (hi - lo) > 9 ? 4 : (hi - lo) > 4.5 ? 2 : (hi - lo) > 2.2 ? 1 : 0.5;
+    const grid: { y: number; label: string }[] = [];
+    for (let v = Math.ceil(lo / step) * step; v < hi; v += step)
+      grid.push({ y: +Y(v).toFixed(1), label: (+v.toFixed(1)).toLocaleString('fr') });
+
+    // repères de dates : 1er du mois (et 1re pesée), espacés d'au moins 46 px pour ne pas se chevaucher
+    const MO = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+    const ticks: { x: number; label: string }[] = [];
+    let prevX = -1e9;
+    for (const c = new Date(t0); c.getTime() <= t1; c.setDate(c.getDate() + 1)) {
+      if (c.getDate() !== 1 && c.getTime() !== t0) continue;
+      const x = X(c.getTime());
+      if (x - prevX < 46 || x > W - PR - 10) continue;
+      prevX = x;
+      ticks.push({ x: +x.toFixed(1), label: c.getDate() + ' ' + MO[c.getMonth()] });
     }
-    return { pts, avgPts, last: last.w, lastAvg: +lastAvg.w.toFixed(1), delta, n: entries.length,
-             lastX: X(last.t).toFixed(1), lastY: Y(last.w).toFixed(1), bfPts, lastBf };
+
+    const first = pts[0], last = pts[pts.length - 1];
+    const delta = +(last.w - first.w).toFixed(2);
+    const win = pts.filter(x => last.t - x.t >= 0 && last.t - x.t < 7 * 86400000);
+    const lastAvg = +(win.reduce((s2, x) => s2 + x.w, 0) / win.length).toFixed(1);
+    return {
+      vb: `0 0 ${W} ${PT + PH + PB}`, W, PL, PR, PT, yb: PT + PH,
+      grid, ticks,
+      line: pts.map(p => `${X(p.t).toFixed(1)},${Y(p.w).toFixed(1)}`).join(' '),
+      dots: pts.map(p => ({ x: +X(p.t).toFixed(1), y: +Y(p.w).toFixed(1) })),
+      firstX: +X(first.t).toFixed(1), firstY: +Y(first.w).toFixed(1), firstLabel: first.w.toLocaleString('fr'),
+      lastX: +X(last.t).toFixed(1), lastY: +Y(last.w).toFixed(1), lastLabel: last.w.toLocaleString('fr'),
+      deltaLabel: (delta >= 0 ? '+' : '−') + Math.abs(delta).toFixed(2).replace('.', ','),
+      last: last.w, lastAvg, lastBf: bfE.length ? bfE[bfE.length - 1].v : 0, n: pts.length,
+    };
   });
 
   const SUPPS = [
@@ -538,19 +541,30 @@
   </div>
 
   <!-- Courbe de poids -->
-  {#if weightSeries}
+  {#if weightChart}
+  {@const wc = weightChart}
   <div class="card foods-card">
     <div class="foods-header">
       <span class="label">Poids</span>
-      <span class="weight-badge">{weightSeries.last.toLocaleString('fr')} kg · moy. 7j {weightSeries.lastAvg.toLocaleString('fr')} kg{#if weightSeries.lastBf} · <span style="color:var(--c-blue)">{weightSeries.lastBf.toLocaleString('fr')}% MG</span>{/if}</span>
+      <span class="weight-badge">{wc.last.toLocaleString('fr')} kg · moy. 7j {wc.lastAvg.toLocaleString('fr')} kg{#if wc.lastBf} · <span style="color:var(--c-blue)">{wc.lastBf.toLocaleString('fr')}% MG</span>{/if}</span>
     </div>
-    <svg viewBox="-4 -6 312 92" class="weight-chart" preserveAspectRatio="none">
-      <polyline points={weightSeries.pts} fill="none" stroke="var(--c-border2)" stroke-width="1.5" />
-      <polyline points={weightSeries.avgPts} fill="none" stroke="var(--c-accent)" stroke-width="2.5" stroke-linecap="round" />
-      {#if weightSeries.bfPts}<polyline points={weightSeries.bfPts} fill="none" stroke="var(--c-blue)" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round" />{/if}
-      <circle cx={weightSeries.lastX} cy={weightSeries.lastY} r="3" fill="var(--c-accent)" />
+    <svg viewBox={wc.vb} class="weight-chart" role="img" aria-label="Courbe de poids depuis le début">
+      {#each wc.grid as g}
+        <line x1={wc.PL} x2={wc.W - wc.PR} y1={g.y} y2={g.y} class="wc-grid" />
+        <text x={wc.PL - 6} y={g.y + 3.4} class="wc-tk" text-anchor="end">{g.label}</text>
+      {/each}
+      {#each wc.ticks as tk}
+        <line x1={tk.x} x2={tk.x} y1={wc.PT} y2={wc.yb} class="wc-gridv" />
+        <text x={tk.x} y={wc.yb + 14} class="wc-tk" text-anchor="middle">{tk.label}</text>
+      {/each}
+      <polyline points={wc.line} fill="none" stroke="var(--c-blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      {#each wc.dots as d}<circle cx={d.x} cy={d.y} r="1.9" fill="var(--c-blue)" />{/each}
+      <text x={wc.firstX + 3} y={wc.firstY - 8} class="wc-dl0">{wc.firstLabel}</text>
+      <circle cx={wc.lastX} cy={wc.lastY} r="3.6" fill="var(--c-blue)" stroke="var(--c-bg)" stroke-width="1.6" />
+      <text x={wc.W - wc.PR + 8} y={wc.lastY + 2} class="wc-dl">{wc.lastLabel}<tspan class="wc-u"> kg</tspan></text>
+      <text x={wc.W - wc.PR + 8} y={wc.lastY + 15} class="wc-dl0">{wc.deltaLabel} kg</text>
     </svg>
-    <div class="caption" style="margin-top:6px">{weightSeries.n} pesées · {weightSeries.delta <= 0 ? '' : '+'}{weightSeries.delta.toLocaleString('fr')} kg depuis le début · ligne épaisse = poids moy. 7 j · fine = pesées brutes · pointillés bleus = % MG</div>
+    <div class="caption" style="margin-top:2px">{wc.n} pesées · {wc.deltaLabel} kg depuis le début · un point = une pesée</div>
   </div>
   {/if}
 
@@ -675,7 +689,13 @@
 /* Foods */
 .foods-card { padding:16px; margin-bottom:10px; }
 .weight-badge { font-size:12px; font-weight:600; color:var(--c-text2); }
-.weight-chart { width:100%; height:88px; display:block; }
+.weight-chart { width:100%; height:auto; display:block; }
+.wc-grid { stroke:var(--c-border); stroke-width:1; }
+.wc-gridv { stroke:var(--c-border); stroke-width:1; opacity:.5; }
+.wc-tk { font-size:8.5px; fill:var(--c-text3); font-family:var(--font); }
+.wc-dl { font-size:11px; font-weight:600; fill:var(--c-text); font-family:var(--font); }
+.wc-dl0 { font-size:9px; fill:var(--c-text3); font-family:var(--font); }
+.wc-u { font-weight:400; fill:var(--c-text3); }
 .foods-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
 .add-food-btn { display:flex; align-items:center; gap:5px; padding:6px 12px; border:none; border-radius:20px; background:var(--c-accent); color:var(--c-accent-fg); font-size:12px; font-weight:600; cursor:pointer; font-family:var(--font); }
 .foods-empty { font-size:13px; color:var(--c-text3); text-align:center; padding:12px 0; }
