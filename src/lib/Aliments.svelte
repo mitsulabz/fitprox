@@ -3,7 +3,7 @@
   import { appData, session, sharedFoods } from './store';
   import { saveAppState, deleteSharedFood, updateSharedFood } from './supabase';
   import { refreshSharedFoods, publishFoods } from './sharedFoods';
-  import { buildCatalog, unsharedPersonal, foodKey, backfillFiber } from './foods';
+  import { buildCatalog, unsharedPersonal, foodKey, backfillFiber, renameFoodInDays } from './foods';
   import { get } from 'svelte/store';
 
   let filter = $state('');
@@ -71,7 +71,7 @@
 
   function openEdit(item: any) {
     editMsg = '';
-    editing = { item, kcal: Math.round(item.kcal ?? 0), p: +(item.p ?? 0), g: +(item.g ?? 0), l: +(item.l ?? 0),
+    editing = { item, name: item.name, kcal: Math.round(item.kcal ?? 0), p: +(item.p ?? 0), g: +(item.g ?? 0), l: +(item.l ?? 0),
       fi: item.fi == null || item.fi === '' ? null : +item.fi };
   }
   function closeEdit() { if (!editBusy) editing = null; }
@@ -80,6 +80,13 @@
     const s = get(session); const data = get(appData) as any;
     if (!s || !data || !editing) return;
     const it = editing.item;
+    const newName = String(editing.name ?? '').trim().slice(0, 200);
+    if (!newName) { editMsg = 'Le nom ne peut pas être vide.'; return; }
+    const renamed = foodKey(newName, it.per) !== it.key;
+    // nom déjà pris par un autre aliment de même base : on refuse plutôt que de créer un doublon
+    if (renamed && catalog.some((f: any) => f.key === foodKey(newName, it.per))) {
+      editMsg = `« ${newName} » existe déjà dans la liste.`; return;
+    }
     const fiVal = numOrNull(editing.fi);
     const vals = { kcal: Math.round(numOrNull(editing.kcal) ?? 0), p: r1(editing.p), g: r1(editing.g), l: r1(editing.l),
       fi: fiVal == null ? null : +fiVal.toFixed(1) };
@@ -87,25 +94,35 @@
     const favorites: any[] = Array.isArray(data.favorites) ? [...data.favorites] : [];
     const idx = favorites.findIndex((f: any) => foodKey(f.name, f.per) === it.key);
     let scope = 'pour toi';
+    let hiddenFoods: string[] = Array.isArray(data.hiddenFoods) ? [...data.hiddenFoods] : [];
     if (it.shared && it.mine && it.id) {
-      const ok = await updateSharedFood(s.access_token, it.id, vals);
-      if (!ok) { editBusy = false; editMsg = 'Enregistrement impossible (réseau ?). Réessaie.'; return; }
-      if (idx >= 0) favorites[idx] = { ...favorites[idx], ...vals }; // ma copie perso reste alignée
+      const r = await updateSharedFood(s.access_token, it.id, { ...vals, name: newName });
+      if (!r.ok) {
+        editBusy = false;
+        editMsg = r.conflict ? `« ${newName} » existe déjà dans le catalogue partagé.` : 'Enregistrement impossible (réseau ?). Réessaie.';
+        return;
+      }
+      if (idx >= 0) favorites[idx] = { ...favorites[idx], ...vals, name: newName }; // ma copie perso reste alignée
       scope = 'pour tous les utilisateurs';
     } else if (it.shared) {
-      const ov = { name: it.name, per: it.per === 'unit' ? 'unit' : '100', ...vals, sel: it.sel ?? null, img: '', ov: true };
+      // aliment d'un autre : ma version perso. Renommé, l'original est masqué chez moi pour éviter le doublon.
+      const ov = { name: newName, per: it.per === 'unit' ? 'unit' : '100', ...vals, sel: it.sel ?? null, img: '', ov: !renamed };
       if (idx >= 0) favorites[idx] = { ...favorites[idx], ...ov }; else favorites.unshift(ov);
+      if (renamed && !hiddenFoods.includes(it.key)) hiddenFoods.push(it.key);
     } else if (idx >= 0) {
-      favorites[idx] = { ...favorites[idx], ...vals };
+      favorites[idx] = { ...favorites[idx], ...vals, name: newName };
     }
-    let days = data.days ?? {}; let n = 0;
-    if (vals.fi != null) ({ days, n } = backfillFiber(days, it.name, vals.fi));
-    const newData = { ...data, favorites, days };
+    let days = data.days ?? {}; let n = 0; let nr = 0;
+    if (renamed) ({ days, n: nr } = renameFoodInDays(days, it.name, newName));
+    if (vals.fi != null) ({ days, n } = backfillFiber(days, newName, vals.fi));
+    const newData = { ...data, favorites, days, hiddenFoods };
     appData.set(newData);
     await saveAppState(s.access_token, s.user.id, newData);
     if (it.shared && it.mine) await refreshSharedFoods();
     editBusy = false; editing = null;
-    shareMsg = `✓ « ${it.name} » modifié ${scope}` + (n ? ` · fibres reportées sur ${n} repas passé${n > 1 ? 's' : ''}` : '');
+    shareMsg = `✓ « ${renamed ? it.name + ' » renommé « ' + newName : it.name} » modifié ${scope}`
+      + (nr ? ` · ${nr} repas passé${nr > 1 ? 's' : ''} renommé${nr > 1 ? 's' : ''}` : '')
+      + (n ? ` · fibres reportées sur ${n} repas passé${n > 1 ? 's' : ''}` : '');
   }
 
   // Opt-in : chacun décide de publier ou non sa liste existante.
@@ -192,6 +209,7 @@
       </div>
       <button class="del-btn" onclick={closeEdit} aria-label="Fermer">✕</button>
     </div>
+    <label class="fld"><span>Nom</span><input type="text" bind:value={editing.name} maxlength="200" autocomplete="off" spellcheck="false" /></label>
     <div class="grid">
       <label class="fld"><span>Kcal</span><input type="number" inputmode="decimal" min="0" step="1" bind:value={editing.kcal} /></label>
       <label class="fld"><span>Protéines (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" bind:value={editing.p} /></label>
@@ -203,7 +221,8 @@
       {#if editing.item.shared && editing.item.mine}Tu as ajouté cet aliment : la modification s'applique à tous les utilisateurs.
       {:else if editing.item.shared}Aliment ajouté par un autre utilisateur : ta modification ne s'applique qu'à toi.
       {:else}Aliment personnel.{/if}
-      Les fibres sont reportées sur tes repas passés contenant cet aliment ; les kcal et macros des jours passés ne changent pas.
+      {#if editing.item.shared && !editing.item.mine}Le renommer crée ta version et masque l'originale chez toi.{/if}
+      Renommer met aussi à jour le nom dans tes repas passés. Les fibres y sont reportées ; les kcal et macros des jours passés ne changent pas.
     </p>
     {#if editMsg}<div class="share-msg">{editMsg}</div>{/if}
     <button class="share-btn save" onclick={saveEdit} disabled={editBusy}>{editBusy ? 'Enregistrement…' : 'Enregistrer'}</button>

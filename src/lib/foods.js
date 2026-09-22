@@ -84,9 +84,45 @@ export function toSharedRow(f) {
 /* Reporte les fibres d'un aliment sur les repas passés qui le citent :
    « Nom » (×1) ou « Nom ×2 », « Nom ×0,5 » (format de l'ajout depuis la liste d'aliments).
    Seules les fibres sont touchées : kcal et macros des jours passés restent inchangés. */
+const MULT_RE = /^(.*?)\s*×\s*(\d+(?:[.,]\d+)?)$/;
+
+/* Un repas cite-t-il cet aliment ? Renvoie la quantité (1, 2, 0,5…) ou 0 si non.
+   Formats produits par l'ajout depuis la liste d'aliments : « Nom » et « Nom ×n ». */
+export function entryMult(entryName, name) {
+  const base = String(name ?? '').trim().toLowerCase();
+  const nm = String(entryName ?? '').trim();
+  if (!base) return 0;
+  if (nm.toLowerCase() === base) return 1;
+  const m = nm.match(MULT_RE);
+  if (m && m[1].trim().toLowerCase() === base) return parseFloat(m[2].replace(',', '.')) || 0;
+  return 0;
+}
+
+/* Renomme un aliment dans tous les repas passés, en gardant la quantité (« Nom ×2 »).
+   Sans ça, l'historique serait coupé de l'aliment (plus de report des fibres). */
+export function renameFoodInDays(days, oldName, newName) {
+  const nn = String(newName ?? '').trim();
+  const out = {};
+  let n = 0;
+  for (const [ds, d] of Object.entries(days ?? {})) {
+    const foods = Array.isArray(d?.foods) ? d.foods : null;
+    if (!foods || !nn) { out[ds] = d; continue; }
+    let changed = false;
+    const next = foods.map((f) => {
+      const mult = entryMult(f?.n, oldName);
+      if (!mult) return f;
+      const label = mult === 1 ? nn : `${nn} ×${String(mult).replace('.', ',')}`;
+      if (f.n === label) return f;
+      changed = true; n++;
+      return { ...f, n: label };
+    });
+    out[ds] = changed ? { ...d, foods: next } : d;
+  }
+  return { days: out, n };
+}
+
 export function backfillFiber(days, name, fiPerUnit) {
   const base = String(name ?? '').trim().toLowerCase();
-  const re = /^(.*?)\s*×\s*(\d+(?:[.,]\d+)?)$/;
   const out = {};
   let n = 0;
   for (const [ds, d] of Object.entries(days ?? {})) {
@@ -94,10 +130,7 @@ export function backfillFiber(days, name, fiPerUnit) {
     if (!foods || !base) { out[ds] = d; continue; }
     let changed = false;
     const next = foods.map((f) => {
-      const nm = String(f?.n ?? '').trim();
-      let mult = 0;
-      if (nm.toLowerCase() === base) mult = 1;
-      else { const m = nm.match(re); if (m && m[1].trim().toLowerCase() === base) mult = parseFloat(m[2].replace(',', '.')); }
+      const mult = entryMult(f?.n, base);
       if (!(mult > 0)) return f;
       const fi = +(fiPerUnit * mult).toFixed(1);
       if (f.fi === fi) return f;

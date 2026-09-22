@@ -102,17 +102,18 @@ export async function shareFoods(token: string, rows: any[]): Promise<boolean> {
 
 // Modifie un aliment partagé. La base ne l'autorise qu'à l'auteur (RLS) : pour un autre,
 // 0 ligne modifiée -> false (l'appelant enregistre alors une correction personnelle).
-export async function updateSharedFood(token: string, id: string, patch: Record<string, unknown>): Promise<boolean> {
+export async function updateSharedFood(token: string, id: string, patch: Record<string, unknown>): Promise<{ ok: boolean; conflict: boolean }> {
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/shared_foods?id=eq.${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { ...headers(token), 'Prefer': 'return=representation' },
       body: JSON.stringify(patch),
     });
-    if (!r.ok) return false;
+    // 409 = un aliment porte déjà ce nom (index unique nom + base)
+    if (!r.ok) return { ok: false, conflict: r.status === 409 };
     const rows = await r.json();
-    return Array.isArray(rows) && rows.length > 0;
-  } catch { return false; }
+    return { ok: Array.isArray(rows) && rows.length > 0, conflict: false };
+  } catch { return { ok: false, conflict: false }; }
 }
 
 // La base n'autorise la suppression qu'à l'auteur (RLS) : pour un autre, 0 ligne supprimée.
