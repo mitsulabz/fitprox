@@ -67,11 +67,14 @@ export function userJ1(uid, data, today = new Date()) {
   return toDs(min && min < t0 ? min : t0);
 }
 
-// Fin de l'horizon : propriétaire = objectif du 1er novembre ; autres = aujourd'hui + 90 jours.
+/* Fin de l'horizon : toujours au moins 90 jours devant. Pour le propriétaire, l'objectif
+   du 1er novembre sert de repère tant qu'il est à venir ; une fois passé, le suivi continue
+   (sinon les jours suivants sortaient du calcul et s'affichaient « / 0 »). */
 export function userEnd(uid, today = new Date()) {
-  if (isOwner(uid)) return OWNER_END;
   const d = midnight(today);
   d.setDate(d.getDate() + HORIZON_DAYS);
+  const goal = parseDs(OWNER_END);
+  if (isOwner(uid) && goal && goal.getTime() > d.getTime()) return OWNER_END;
   return toDs(d);
 }
 
