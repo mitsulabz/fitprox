@@ -72,7 +72,8 @@
 
   function openEdit(item: any) {
     editMsg = '';
-    editing = { item, name: item.name, prix: item.prix == null || item.prix === '' ? null : +item.prix, kcal: Math.round(item.kcal ?? 0), p: +(item.p ?? 0), g: +(item.g ?? 0), l: +(item.l ?? 0),
+    editing = { item, name: item.name, prix: item.prix == null || item.prix === '' ? null : +item.prix,
+      prixUnit: ((item.prixUnit ?? item.prix_unit) === 'kg' ? 'kg' : 'portion'), kcal: Math.round(item.kcal ?? 0), p: +(item.p ?? 0), g: +(item.g ?? 0), l: +(item.l ?? 0),
       fi: item.fi == null || item.fi === '' ? null : +item.fi };
   }
   function closeEdit() { if (!editBusy) editing = null; }
@@ -91,7 +92,8 @@
     const fiVal = numOrNull(editing.fi);
     const prixVal = numOrNull(editing.prix);
     const vals = { kcal: Math.round(numOrNull(editing.kcal) ?? 0), p: r1(editing.p), g: r1(editing.g), l: r1(editing.l),
-      fi: fiVal == null ? null : +fiVal.toFixed(1), prix: prixVal == null ? null : +prixVal.toFixed(3) };
+      fi: fiVal == null ? null : +fiVal.toFixed(1), prix: prixVal == null ? null : +prixVal.toFixed(3),
+      prixUnit: prixVal == null ? null : editing.prixUnit, prix_unit: prixVal == null ? null : editing.prixUnit };
     editBusy = true; editMsg = '';
     const favorites: any[] = Array.isArray(data.favorites) ? [...data.favorites] : [];
     const idx = favorites.findIndex((f: any) => foodKey(f.name, f.per) === it.key);
@@ -173,7 +175,7 @@
           <button class="fav-info" onclick={() => openEdit(fav)} title="Modifier">
             <span class="fav-name">{fav.name}{#if fav.archived}<span class="tag">archivé</span>{:else if fav.override}<span class="tag">modifié</span>{:else if sharingOn && !fav.shared}<span class="tag">perso</span>{/if}</span>
             <span class="fav-macros">
-              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g{trackFiber ? ' · F ' + (fav.fi != null && fav.fi !== '' ? +(+fav.fi).toFixed(1) + 'g' : '–') : ''}{fav.prix != null && fav.prix !== '' ? ' · ' + (+fav.prix).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : ''}
+              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g{trackFiber ? ' · F ' + (fav.fi != null && fav.fi !== '' ? +(+fav.fi).toFixed(1) + 'g' : '–') : ''}{fav.prix != null && fav.prix !== '' ? ' · ' + (+fav.prix).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' + ((fav.prixUnit ?? fav.prix_unit) === 'kg' ? '/kg' : '/ligne') : ''}
               <span class="muted">{fav.per === 'unit' ? '/portion' : '/100g'}</span>
             </span>
           </button>
@@ -218,7 +220,13 @@
       <label class="fld"><span>Glucides (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" bind:value={editing.g} /></label>
       <label class="fld"><span>Lipides (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" bind:value={editing.l} /></label>
       <label class="fld"><span>Fibres (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" placeholder="inconnu" bind:value={editing.fi} /></label>
-      <label class="fld"><span>Prix (€ / kg ou / ligne)</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="voir Budget" bind:value={editing.prix} /></label>
+      <label class="fld"><span>Prix (€)</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="inconnu" bind:value={editing.prix} /></label>
+      <div class="fld"><span>Prix exprimé</span>
+        <div class="seg2">
+          <button class:on={editing.prixUnit === 'kg'} onclick={() => (editing.prixUnit = 'kg')}>au kilo</button>
+          <button class:on={editing.prixUnit !== 'kg'} onclick={() => (editing.prixUnit = 'portion')}>par ligne</button>
+        </div>
+      </div>
     </div>
     <p class="caption note">
       {#if editing.item.shared && editing.item.mine}Tu as ajouté cet aliment : la modification s'applique à tous les utilisateurs.
@@ -254,6 +262,9 @@
 .fld input { width:100%; padding:10px 12px; border:1px solid var(--c-border); border-radius:var(--r-md); background:var(--c-surface); color:var(--c-text); font-size:16px; font-family:var(--font); }
 .fld input:focus { outline:none; border-color:var(--c-accent); }
 .note { margin:0; line-height:1.45; }
+.seg2 { display:flex; background:var(--c-surface2); border-radius:9px; padding:2px; gap:2px; }
+.seg2 button { flex:1; border:0; background:transparent; color:var(--c-text2); font-size:12.5px; font-weight:500; padding:8px 6px; border-radius:7px; cursor:pointer; font-family:var(--font); }
+.seg2 button.on { background:var(--c-accent); color:var(--c-accent-fg); }
 .save { align-self:stretch; padding:12px; font-size:14px; }
 .fav-name { font-size:13px; font-weight:500; color:var(--c-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .fav-macros { font-size:11px; color:var(--c-text2); }

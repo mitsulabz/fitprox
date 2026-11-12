@@ -41,6 +41,11 @@ export function lineGrams(entryName) {
   return q > 0 ? +(q * p.mult).toFixed(2) : null;
 }
 
+const priceUnit = (f) => {
+  const u = f?.prixUnit ?? f?.prix_unit;
+  return u === 'kg' || u === 'portion' ? u : null;
+};
+
 const num = (v) => { const x = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) && x >= 0 ? x : null; };
 
 /* Index des prix par clé d'aliment. Une entrée en grammes (« (150g) ») ne peut
@@ -51,8 +56,9 @@ export function priceIndex(catalog) {
     const k = foodKey(f?.name, f?.per);
     if (!idx.has(k)) idx.set(k, {
       prix: num(f?.prix), per: f?.per === 'unit' ? 'unit' : '100', name: f?.name,
-      // 'kg' : prix au kilo (ou au litre) ; 'portion' : prix d'une ligne telle que notée
-      unit: f?.prixUnit === 'portion' ? 'portion' : (f?.prixUnit === 'kg' ? 'kg' : null),
+      // 'kg' : prix au kilo (ou au litre) ; 'portion' : prix d'une ligne telle que notée.
+      // Le catalogue partagé renvoie prix_unit (colonne SQL), les favoris perso prixUnit.
+      unit: priceUnit(f),
     });
   }
   return idx;
