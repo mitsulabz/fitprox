@@ -111,9 +111,13 @@
     }
     const fiVal = numOrNull(editing.fi);
     const prixVal = numOrNull(editing.prix);
+    const unit = prixVal == null ? null : editing.prixUnit;
+    /* La base ne connaît que prix_unit (colonne SQL) ; prixUnit est la forme locale.
+       Envoyer prixUnit à PostgREST faisait échouer tout l'enregistrement (400). */
     const vals = { kcal: Math.round(numOrNull(editing.kcal) ?? 0), p: r1(editing.p), g: r1(editing.g), l: r1(editing.l),
       fi: fiVal == null ? null : +fiVal.toFixed(1), prix: prixVal == null ? null : +prixVal.toFixed(3),
-      prixUnit: prixVal == null ? null : editing.prixUnit, prix_unit: prixVal == null ? null : editing.prixUnit };
+      prix_unit: unit };
+    const localVals = { ...vals, prixUnit: unit };
     editBusy = true; editMsg = '';
     const favorites: any[] = Array.isArray(data.favorites) ? [...data.favorites] : [];
     const idx = favorites.findIndex((f: any) => foodKey(f.name, f.per) === it.key);
@@ -126,15 +130,15 @@
         editMsg = r.conflict ? `« ${newName} » existe déjà dans le catalogue partagé.` : 'Enregistrement impossible (réseau ?). Réessaie.';
         return;
       }
-      if (idx >= 0) favorites[idx] = { ...favorites[idx], ...vals, name: newName }; // ma copie perso reste alignée
+      if (idx >= 0) favorites[idx] = { ...favorites[idx], ...localVals, name: newName }; // ma copie perso reste alignée
       scope = 'pour tous les utilisateurs';
     } else if (it.shared) {
       // aliment d'un autre : ma version perso. Renommé, l'original est masqué chez moi pour éviter le doublon.
-      const ov = { name: newName, per: it.per === 'unit' ? 'unit' : '100', ...vals, sel: it.sel ?? null, img: '', ov: !renamed };
+      const ov = { name: newName, per: it.per === 'unit' ? 'unit' : '100', ...localVals, sel: it.sel ?? null, img: '', ov: !renamed };
       if (idx >= 0) favorites[idx] = { ...favorites[idx], ...ov }; else favorites.unshift(ov);
       if (renamed && !hiddenFoods.includes(it.key)) hiddenFoods.push(it.key);
     } else if (idx >= 0) {
-      favorites[idx] = { ...favorites[idx], ...vals, name: newName };
+      favorites[idx] = { ...favorites[idx], ...localVals, name: newName };
     }
     let days = data.days ?? {}; let n = 0; let nr = 0;
     if (renamed) ({ days, n: nr } = renameFoodInDays(days, it.name, newName));
