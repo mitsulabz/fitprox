@@ -17,8 +17,9 @@
 
   const myId = $derived($session?.user?.id ?? '');
   const hidden = $derived(Array.isArray(($appData as any)?.hiddenFoods) ? ($appData as any).hiddenFoods : []);
-  const catalog = $derived(buildCatalog({ shared: $sharedFoods, personal: ($appData as any)?.favorites, hidden, myId }));
-  const toShare = $derived(unsharedPersonal({ shared: $sharedFoods, personal: ($appData as any)?.favorites, hidden }));
+  const archived = $derived(Array.isArray(($appData as any)?.archivedFoods) ? ($appData as any).archivedFoods : []);
+  const catalog = $derived(buildCatalog({ shared: $sharedFoods, personal: ($appData as any)?.favorites, hidden, archived, myId }));
+  const toShare = $derived(unsharedPersonal({ shared: $sharedFoods, personal: ($appData as any)?.favorites, hidden, archived }));
   const sharingOn = $derived($sharedFoods !== null);
 
   // Retire un aliment de mes favoris personnels (et le masque si demandé), puis sauvegarde.
@@ -71,7 +72,7 @@
 
   function openEdit(item: any) {
     editMsg = '';
-    editing = { item, name: item.name, kcal: Math.round(item.kcal ?? 0), p: +(item.p ?? 0), g: +(item.g ?? 0), l: +(item.l ?? 0),
+    editing = { item, name: item.name, prix: item.prix == null || item.prix === '' ? null : +item.prix, kcal: Math.round(item.kcal ?? 0), p: +(item.p ?? 0), g: +(item.g ?? 0), l: +(item.l ?? 0),
       fi: item.fi == null || item.fi === '' ? null : +item.fi };
   }
   function closeEdit() { if (!editBusy) editing = null; }
@@ -88,8 +89,9 @@
       editMsg = `« ${newName} » existe déjà dans la liste.`; return;
     }
     const fiVal = numOrNull(editing.fi);
+    const prixVal = numOrNull(editing.prix);
     const vals = { kcal: Math.round(numOrNull(editing.kcal) ?? 0), p: r1(editing.p), g: r1(editing.g), l: r1(editing.l),
-      fi: fiVal == null ? null : +fiVal.toFixed(1) };
+      fi: fiVal == null ? null : +fiVal.toFixed(1), prix: prixVal == null ? null : +prixVal.toFixed(3) };
     editBusy = true; editMsg = '';
     const favorites: any[] = Array.isArray(data.favorites) ? [...data.favorites] : [];
     const idx = favorites.findIndex((f: any) => foodKey(f.name, f.per) === it.key);
@@ -169,9 +171,9 @@
       {#each filtered as fav (fav.key)}
         <div class="fav-row">
           <button class="fav-info" onclick={() => openEdit(fav)} title="Modifier">
-            <span class="fav-name">{fav.name}{#if fav.override}<span class="tag">modifié</span>{:else if sharingOn && !fav.shared}<span class="tag">perso</span>{/if}</span>
+            <span class="fav-name">{fav.name}{#if fav.archived}<span class="tag">archivé</span>{:else if fav.override}<span class="tag">modifié</span>{:else if sharingOn && !fav.shared}<span class="tag">perso</span>{/if}</span>
             <span class="fav-macros">
-              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g{trackFiber ? ' · F ' + (fav.fi != null && fav.fi !== '' ? +(+fav.fi).toFixed(1) + 'g' : '–') : ''}
+              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g{trackFiber ? ' · F ' + (fav.fi != null && fav.fi !== '' ? +(+fav.fi).toFixed(1) + 'g' : '–') : ''}{fav.prix != null && fav.prix !== '' ? ' · ' + (+fav.prix).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : ''}
               <span class="muted">{fav.per === 'unit' ? '/portion' : '/100g'}</span>
             </span>
           </button>
@@ -216,6 +218,7 @@
       <label class="fld"><span>Glucides (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" bind:value={editing.g} /></label>
       <label class="fld"><span>Lipides (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" bind:value={editing.l} /></label>
       <label class="fld"><span>Fibres (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" placeholder="inconnu" bind:value={editing.fi} /></label>
+      <label class="fld"><span>Prix (€ {editing.item.per === 'unit' ? '/ portion' : '/ 100 g'})</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="inconnu" bind:value={editing.prix} /></label>
     </div>
     <p class="caption note">
       {#if editing.item.shared && editing.item.mine}Tu as ajouté cet aliment : la modification s'applique à tous les utilisateurs.

@@ -10,6 +10,7 @@
   import Dashboard from "./lib/Dashboard.svelte";
   import Graph from "./lib/Graph.svelte";
   import Aliments from "./lib/Aliments.svelte";
+  import Budget from "./lib/Budget.svelte";
   import Amis from "./lib/Amis.svelte";
   import Settings from "./lib/Settings.svelte";
   import { get } from "svelte/store";
@@ -80,6 +81,7 @@
   {#if $activeTab === "aliments"}
     <Aliments />
   {/if}
+  {#if $activeTab === "budget"}<Budget />{/if}
   {#if $activeTab === "amis"}
     <Amis />
   {/if}

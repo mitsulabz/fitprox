@@ -5,7 +5,7 @@
 
 // Bornes alignées sur les contraintes CHECK de la table (une valeur hors bornes
 // ferait échouer tout un lot d'insertion).
-export const MAX_KCAL = 19999, MAX_MACRO = 1999, MAX_SEL = 199;
+export const MAX_KCAL = 19999, MAX_MACRO = 1999, MAX_SEL = 199, MAX_PRIX = 9999;
 
 // Même aliment = même nom (casse et espaces ignorés) + même base (100 g ou portion)
 export function foodKey(name, per) {
@@ -23,27 +23,28 @@ const hasName = (f) => String(f?.name ?? '').trim() !== '';
 /* shared : tableau, ou null si le catalogue partagé est indisponible (SQL pas
    encore exécuté, hors-ligne) — on retombe alors sur les seuls favoris perso.
    mine = l'utilisateur peut supprimer (auteur, ou favori purement personnel). */
-export function buildCatalog({ shared, personal, hidden, myId }) {
+export function buildCatalog({ shared, personal, hidden, myId, archived = [] }) {
   const hid = new Set(Array.isArray(hidden) ? hidden : []);
+  const arc = new Set(Array.isArray(archived) ? archived : []);
   const byKey = new Map();
   // Mes corrections d'un aliment partagé par quelqu'un d'autre (ov) passent avant la version partagée
   for (const f of Array.isArray(personal) ? personal : []) {
     if (!f?.ov || !hasName(f)) continue;
     const key = foodKey(f.name, f.per);
     if (hid.has(key) || byKey.has(key)) continue;
-    byKey.set(key, { ...f, key, shared: false, mine: true, override: true });
+    byKey.set(key, { ...f, key, shared: false, mine: true, override: true, archived: arc.has(key) });
   }
   for (const f of Array.isArray(shared) ? shared : []) {
     if (!hasName(f)) continue;
     const key = foodKey(f.name, f.per);
     if (hid.has(key) || byKey.has(key)) continue;
-    byKey.set(key, { ...f, key, shared: true, mine: !!myId && f.created_by === myId });
+    byKey.set(key, { ...f, key, shared: true, mine: !!myId && f.created_by === myId, archived: arc.has(key) });
   }
   for (const f of Array.isArray(personal) ? personal : []) {
     if (!hasName(f)) continue;
     const key = foodKey(f.name, f.per);
     if (hid.has(key) || byKey.has(key)) continue;
-    byKey.set(key, { ...f, key, shared: false, mine: true });
+    byKey.set(key, { ...f, key, shared: false, mine: true, archived: arc.has(key) });
   }
   // départage par clé : même nom avec deux bases -> ordre stable
   return [...byKey.values()].sort((a, b) =>
@@ -51,10 +52,10 @@ export function buildCatalog({ shared, personal, hidden, myId }) {
 }
 
 // Favoris personnels absents du catalogue partagé : proposés au partage (opt-in).
-export function unsharedPersonal({ shared, personal, hidden }) {
+export function unsharedPersonal({ shared, personal, hidden, archived = [] }) {
   if (!Array.isArray(shared)) return [];
   const known = new Set(shared.map((f) => foodKey(f.name, f.per)));
-  const hid = new Set(Array.isArray(hidden) ? hidden : []);
+  const hid = new Set([...(Array.isArray(hidden) ? hidden : []), ...(Array.isArray(archived) ? archived : [])]);
   const out = [];
   for (const f of Array.isArray(personal) ? personal : []) {
     if (!hasName(f)) continue;
@@ -78,6 +79,7 @@ export function toSharedRow(f) {
     l: +num(f?.l, MAX_MACRO).toFixed(1),
     fi: opt(f?.fi, MAX_MACRO, 1),
     sel: opt(f?.sel, MAX_SEL, 2),
+    prix: opt(f?.prix, MAX_PRIX, 3),
   };
 }
 

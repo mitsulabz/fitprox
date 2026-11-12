@@ -4,7 +4,7 @@ import { createI18n } from './i18n';
 import type { Session } from './supabase';
 
 export type Theme = 'light' | 'dark';
-export type Tab = 'suivi' | 'graph' | 'aliments' | 'amis' | 'reglages';
+export type Tab = 'suivi' | 'graph' | 'aliments' | 'budget' | 'amis' | 'reglages';
 
 // Theme
 const savedTheme = (localStorage.getItem('fitpro_theme') as Theme) || 'dark';

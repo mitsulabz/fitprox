@@ -3,7 +3,8 @@
   import { saveAppState } from "./supabase";
   import { buildTimeline, estimateBase, settingsFor, dsToMs, nf, ADAPT_DEFAULT } from "./engine";
   import { userJ1, effectiveSettingsLog, basePrior, isEstimateSource } from "./account";
-  import { buildCatalog } from "./foods";
+  import { buildCatalog, foodKey } from "./foods";
+  import { setFoodPrice } from "./prices";
   import BaseSetup from "./BaseSetup.svelte";
 
   const uid = $derived($session?.user?.id ?? '');
@@ -79,13 +80,14 @@
     const data = $appData as any;
     if (!data) return;
     const favs = buildCatalog({
-      shared: $sharedFoods, personal: data.favorites, hidden: data.hiddenFoods, myId: $session?.user?.id ?? '',
+      shared: $sharedFoods, personal: data.favorites, hidden: data.hiddenFoods,
+      archived: data.archivedFoods, myId: $session?.user?.id ?? '',
     });
     const esc = (v: any) => {
       const s = String(v ?? '');
       return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
-    const rows = ['nom,base,kcal,proteines_g,glucides_g,lipides_g,fibres_g,sel_g'];
+    const rows = ['nom,base,kcal,proteines_g,glucides_g,lipides_g,fibres_g,sel_g,prix_eur'];
     for (const f of favs) {
       rows.push([
         esc(f.name),
@@ -96,6 +98,7 @@
         +nf(f.l).toFixed(1),
         f.fi != null && f.fi !== '' ? +nf(f.fi).toFixed(1) : '',
         f.sel != null && f.sel !== '' ? +nf(f.sel).toFixed(2) : '',
+        f.prix != null && f.prix !== '' ? +nf(f.prix).toFixed(3) : '',
       ].join(','));
     }
     const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -109,6 +112,38 @@
 
   let importStatus = $state('');
   let fileInput: HTMLInputElement;
+
+  /* Import des prix : CSV « nom,base,prix » (la base vaut 100g ou portion ; c'est
+     exactement le format de l'export aliments, colonne prix_eur remplie). */
+  let priceInput: HTMLInputElement;
+  let priceStatus = $state('');
+  async function onPriceFile(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    priceStatus = 'Lecture…';
+    const data = $appData as any;
+    const cat = buildCatalog({ shared: $sharedFoods, personal: data?.favorites, hidden: data?.hiddenFoods, archived: data?.archivedFoods, myId: $session?.user?.id ?? '' });
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    const split = (l: string) => (l.match(/("([^"]|"")*"|[^,;]*)([,;]|$)/g) ?? []).map((c) => c.replace(/[,;]$/, '').replace(/^"|"$/g, '').replace(/""/g, '"'));
+    let done = 0, skipped = 0;
+    for (const line of lines) {
+      const c = split(line);
+      if (c.length < 2) { skipped++; continue; }
+      const name = (c[0] ?? '').trim();
+      const prix = nf(c[c.length - 1]);
+      if (!name || /^nom$/i.test(name) || !(prix > 0)) { skipped++; continue; }
+      const per = /portion|unit/i.test(c[1] ?? '') ? 'unit' : '100';
+      const item = cat.find((f: any) => f.key === foodKey(name, per)) ?? cat.find((f: any) => f.key === foodKey(name, per === 'unit' ? '100' : 'unit'));
+      if (!item) { skipped++; continue; }
+      const r = await setFoodPrice(item, prix);
+      if (r.ok) done++; else skipped++;
+      priceStatus = `Import… ${done} prix`;
+    }
+    priceStatus = `✓ ${done} prix importé${done > 1 ? 's' : ''}${skipped ? ` · ${skipped} ligne${skipped > 1 ? 's' : ''} ignorée${skipped > 1 ? 's' : ''} (nom inconnu ou prix vide)` : ''}`;
+    priceInput.value = '';
+    setTimeout(() => (priceStatus = ''), 8000);
+  }
 
   // ── Base hors sport : datée ; estimation rapide = formule + mesures pondérées ──
   const _now = new Date(); _now.setHours(0,0,0,0);
@@ -321,6 +356,12 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
 
   <div class="section-title">Données</div>
   <div class="section">
+    <button class="card setting-row" onclick={() => priceInput.click()}>
+      <span class="body">Importer des prix (CSV)</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="transform:scaleY(-1)" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <input bind:this={priceInput} type="file" accept=".csv,text/csv" onchange={onPriceFile} style="display:none" />
+    {#if priceStatus}<div class="import-status" class:success={priceStatus.startsWith('✓')}>{priceStatus}</div>{/if}
     <button class="card setting-row" onclick={exportAliments}>
       <span class="body">Export aliments (CSV)</span>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -354,7 +395,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     </button>
   </div>
 
-  <div class="version caption">FitProX · V15.1</div>
+  <div class="version caption">FitProX · V15.2</div>
 </div>
 
 {#if showSetup}

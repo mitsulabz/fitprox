@@ -63,12 +63,14 @@
   let scanError = $state('');
 
   // Catalogue = aliments partagés par tous ∪ mes favoris, moins ceux que j'ai masqués
+  // les aliments « archivés » (restaurés depuis l'historique pour le budget) ne sont pas proposés ici
   const favorites = $derived(buildCatalog({
     shared: $sharedFoods,
     personal: ($appData as any)?.favorites,
     hidden: ($appData as any)?.hiddenFoods,
+    archived: ($appData as any)?.archivedFoods,
     myId: $session?.user?.id ?? '',
-  }));
+  }).filter((f: any) => !f.archived));
 
   onMount(() => { refreshSharedFoods(); });
 

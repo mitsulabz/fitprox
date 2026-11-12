@@ -71,7 +71,7 @@ export function mergeStates(cloud: any, local: any): any {
 
 // ---- Catalogue d'aliments partagé (table shared_foods, cf. supabase_shared_foods.sql) ----
 // Supabase plafonne à 1000 lignes par requête : largement suffisant pour ce catalogue.
-const SHARED_FOODS_COLS = 'id,name,per,kcal,p,g,l,fi,sel,created_by';
+const SHARED_FOODS_COLS = 'id,name,per,kcal,p,g,l,fi,sel,prix,created_by';
 
 // null si la table n'existe pas encore (404 PGRST205), hors-ligne ou jeton refusé :
 // l'app retombe alors sur les seuls favoris personnels.
