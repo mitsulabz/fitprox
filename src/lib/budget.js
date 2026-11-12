@@ -241,7 +241,7 @@ const UNIT_RE = /^\d+(?:[.,]\d+)?\s*(g|kg|mg|ml|cl|dl|l|gr|grammes?|cc)?$/i;
 export function nameCore(name) {
   const base = String(name ?? '')
     .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\([^)]*\)/g, ' ')                       // (greenwhey), (10g)
+    .replace(/[()]/g, ' ')                            // « (greenwhey) » compte ; « (10g) » part avec les quantités
     .replace(/\d+(?:[.,]\d+)?\s*(kg|g|gr|mg|ml|cl|dl|l|cc)\b/gi, ' ') // 30g, 300ml
     .replace(/[^a-z0-9]+/g, ' ');
   const toks = base.split(' ')
@@ -272,7 +272,7 @@ export function suggestGroups(foods, aliases) {
     if (!rest.length) return;
     sorted.forEach((m) => used.add(m.key));
     groups.push({
-      kind, key: head.key, name: head.name, per: head.per,
+      kind, key: head.key, name: head.name, per: head.per, toks: nameCore(head.name).split(' ').filter(Boolean),
       members: rest.map((m) => ({ key: m.key, name: m.name, count: m.count })),
       count: sorted.reduce((s, m) => s + m.count, 0),
       kcal: Math.round(sorted.reduce((s, m) => s + m.kcal, 0)),
@@ -285,7 +285,7 @@ export function suggestGroups(foods, aliases) {
   for (let i = 0; i < rest.length; i++) {
     if (used.has(rest[i].key)) continue;
     const a = rest[i];
-    if (a.toks.length < 2) continue;
+    if (!a.toks.length || (a.toks.length === 1 && a.toks[0].length < 4)) continue;
     const near = [a];
     for (let j = i + 1; j < rest.length; j++) {
       const b = rest[j];
@@ -296,5 +296,19 @@ export function suggestGroups(foods, aliases) {
     }
     if (near.length > 1) push(near, 'proche');
   }
-  return groups.sort((a, b) => b.count - a.count);
+  /* Restants : un nom plus court que le noyau d'un groupe existant s'y raccroche
+     (« whey » rejoint « whey greenwhey »), à confirmer comme tout groupe « proche ». */
+  for (const f of items) {
+    if (used.has(f.key)) continue;
+    const toks = nameCore(f.name).split(' ').filter(Boolean);
+    if (!toks.length || (toks.length === 1 && toks[0].length < 4)) continue;
+    const g = groups.find((x) => x.per === f.per && x.toks.length - toks.length >= 0
+      && x.toks.length - toks.length <= 2 && toks.every((w) => x.toks.includes(w)));
+    if (!g) continue;
+    used.add(f.key);
+    g.kind = 'proche';
+    g.members.push({ key: f.key, name: f.name, count: f.count });
+    g.count += f.count; g.kcal += Math.round(f.kcal);
+  }
+  return groups.map(({ toks, ...g }) => g).sort((a, b) => b.count - a.count);
 }

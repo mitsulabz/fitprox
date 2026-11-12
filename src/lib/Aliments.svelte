@@ -4,6 +4,7 @@
   import { saveAppState, deleteSharedFood, updateSharedFood } from './supabase';
   import { refreshSharedFoods, publishFoods } from './sharedFoods';
   import { buildCatalog, unsharedPersonal, foodKey, backfillFiber, renameFoodInDays } from './foods';
+  import { priceIndex, resolveKey } from './budget';
   import { get } from 'svelte/store';
 
   let filter = $state('');
@@ -21,6 +22,25 @@
   const catalog = $derived(buildCatalog({ shared: $sharedFoods, personal: ($appData as any)?.favorites, hidden, archived, myId }));
   const toShare = $derived(unsharedPersonal({ shared: $sharedFoods, personal: ($appData as any)?.favorites, hidden, archived }));
   const sharingOn = $derived($sharedFoods !== null);
+
+  /* Prix affiché : le sien, sinon celui hérité du pilote de son groupe (Budget).
+     Au kilo, le prix est le même pour toutes les quantités ; par ligne, il suit
+     le rapport des calories entre l'aliment et son pilote. */
+  const aliases = $derived(($appData as any)?.foodAliases ?? {});
+  const pIdx = $derived(priceIndex(catalog));
+  const eur2 = (v: number) => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  function priceLabel(fav: any): string {
+    const unit = (f: any) => ((f?.prixUnit ?? f?.prix_unit) === 'kg' ? 'kg' : 'ligne');
+    if (fav.prix != null && fav.prix !== '') return `${eur2(+fav.prix)}/${unit(fav)}`;
+    const target = resolveKey(fav.key, aliases);
+    if (target === fav.key) return '';
+    const pilot = catalog.find((f: any) => f.key === target);
+    if (!pilot || pilot.prix == null || pilot.prix === '') return '';
+    if (unit(pilot) === 'kg') return `${eur2(+pilot.prix)}/kg · hérité`;
+    const k = +(fav.kcal ?? 0), kp = +(pilot.kcal ?? 0);
+    const v = kp > 0 && k > 0 ? +pilot.prix * (k / kp) : +pilot.prix;
+    return `≈ ${eur2(v)}/ligne · hérité`;
+  }
 
   // Retire un aliment de mes favoris personnels (et le masque si demandé), puis sauvegarde.
   function saveFavs(removeKey: string, hide: boolean) {
@@ -175,8 +195,9 @@
           <button class="fav-info" onclick={() => openEdit(fav)} title="Modifier">
             <span class="fav-name">{fav.name}{#if fav.archived}<span class="tag">archivé</span>{:else if fav.override}<span class="tag">modifié</span>{:else if sharingOn && !fav.shared}<span class="tag">perso</span>{/if}</span>
             <span class="fav-macros">
-              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g{trackFiber ? ' · F ' + (fav.fi != null && fav.fi !== '' ? +(+fav.fi).toFixed(1) + 'g' : '–') : ''}{fav.prix != null && fav.prix !== '' ? ' · ' + (+fav.prix).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' + ((fav.prixUnit ?? fav.prix_unit) === 'kg' ? '/kg' : '/ligne') : ''}
+              {Math.round(fav.kcal ?? 0)} kcal · P {+(fav.p ?? 0).toFixed(1)}g · G {+(fav.g ?? 0).toFixed(1)}g · L {+(fav.l ?? 0).toFixed(1)}g{trackFiber ? ' · F ' + (fav.fi != null && fav.fi !== '' ? +(+fav.fi).toFixed(1) + 'g' : '–') : ''}
               <span class="muted">{fav.per === 'unit' ? '/portion' : '/100g'}</span>
+              {#if priceLabel(fav)}<span class="price">· {priceLabel(fav)}</span>{/if}
             </span>
           </button>
           {#if fav.mine}
@@ -269,6 +290,7 @@
 .fav-name { font-size:13px; font-weight:500; color:var(--c-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .fav-macros { font-size:11px; color:var(--c-text2); }
 .muted { color:var(--c-text3); }
+.price { color:var(--c-text2); font-weight:500; }
 .tag { margin-left:6px; font-size:10px; font-weight:500; color:var(--c-text3); border:0.5px solid var(--c-border); border-radius:6px; padding:0 5px; vertical-align:1px; }
 .del-btn { width:28px; height:28px; border:none; border-radius:50%; background:var(--c-surface2); color:var(--c-text3); cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .del-btn:hover { background:rgba(220,50,50,.12); color:var(--c-red, #e05); }
