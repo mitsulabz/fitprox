@@ -28,6 +28,18 @@
   const hist = $derived(historyFoods(days, idx, { fromT: j1T }));
   const missing = $derived(missingFromCatalog(days, idx, { fromT: j1T }));
   const unpriced = $derived(hist.filter((h: any) => !h.priced));
+  // liste des prix à renseigner : alphabétique par défaut, recherche sans accents,
+  // tri par fréquence disponible (les plus fréquents pèsent le plus sur le budget)
+  let search = $state('');
+  let sortBy = $state<'az' | 'freq'>('az');
+  const norm = (s: string) => (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const unpricedView = $derived.by(() => {
+    const q = norm(search);
+    const list = unpriced.filter((h: any) => !q || norm(h.name).includes(q));
+    return sortBy === 'az'
+      ? [...list].sort((a: any, b: any) => a.name.localeCompare(b.name, 'fr'))
+      : list;
+  });
 
   const totals = $derived.by(() => {
     const cost = daily.reduce((s: number, d: any) => s + d.cost, 0);
@@ -162,8 +174,19 @@
       </button>
       <div class="caption" style="margin:4px 2px 10px">Ils reviennent en « archivé » : modifiables dans Aliments, mais pas proposés quand tu ajoutes un repas.</div>
     {/if}
+    <div class="toolbar">
+      <input class="search" type="search" placeholder="Rechercher un aliment…" bind:value={search}
+        autocomplete="off" autocorrect="off" spellcheck="false" />
+      <div class="seg">
+        <button class:on={sortBy === 'az'} onclick={() => (sortBy = 'az')}>A→Z</button>
+        <button class:on={sortBy === 'freq'} onclick={() => (sortBy = 'freq')}>Fréquence</button>
+      </div>
+    </div>
+    {#if search && !unpricedView.length}
+      <div class="caption" style="padding:10px 2px">Aucun aliment ne correspond à « {search} ».</div>
+    {/if}
     <div class="list">
-      {#each unpriced.slice(0, 40) as h (h.key)}
+      {#each unpricedView as h (h.key)}
         <div class="row">
           <div class="rinfo">
             <span class="rname">{h.name}{#if !h.inCatalog}<span class="tag">hors liste</span>{/if}</span>
@@ -229,6 +252,9 @@
 .bc-bar.partial { opacity:.45; }
 .section-title { font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--c-text3); margin:18px 0 6px; }
 .list { display:flex; flex-direction:column; gap:6px; }
+.toolbar { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+.search { flex:1; min-width:160px; padding:10px 12px; border:1px solid var(--c-border); border-radius:var(--r-md); background:var(--c-surface); color:var(--c-text); font-size:14px; font-family:var(--font); }
+.search:focus { outline:none; border-color:var(--c-accent); }
 .row { display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--c-surface); border:0.5px solid var(--c-border); border-radius:var(--r-md); }
 .rinfo { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
 .rname { font-size:13px; font-weight:500; color:var(--c-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
