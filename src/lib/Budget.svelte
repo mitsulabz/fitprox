@@ -31,7 +31,18 @@
   const groups = $derived(groupCosts(daily, mode, todayT));
   const hist = $derived(historyFoods(days, idx, { fromT: j1T, aliases, refs }));
   const missing = $derived(missingFromCatalog(days, idx, { fromT: j1T }));
-  const dupes = $derived(suggestGroups(hist, aliases));
+  /* Candidats au regroupement : les aliments mangés, plus ceux de la liste jamais
+     mangés (sinon une écriture jamais loggée ne rejoindrait aucun groupe et
+     n'hériterait jamais d'un prix). */
+  const groupCandidates = $derived.by(() => {
+    const seen = new Set(hist.map((h: any) => h.key));
+    const extras = catalog
+      .filter((f: any) => !seen.has(f.key))
+      .map((f: any) => ({ key: f.key, name: f.name, per: f.per === 'unit' ? 'unit' : '100',
+                          count: 0, kcal: 0, priced: f.prix != null && f.prix !== '', inCatalog: true }));
+    return [...hist, ...extras];
+  });
+  const dupes = $derived(suggestGroups(groupCandidates, aliases));
   const aliasCount = $derived(Object.keys(aliases).length);
   const unpriced = $derived(hist.filter((h: any) => !h.priced));
   // liste des prix à renseigner : alphabétique par défaut, recherche sans accents,
@@ -215,7 +226,7 @@
           <div class="rinfo">
             <span class="rname">{g.name}{#if g.kind === 'proche'}<span class="tag">à vérifier</span>{/if}</span>
             <span class="rsub">+ {g.members.map((m: any) => m.name).join(' · ')}</span>
-            <span class="rsub">{g.count} repas au total</span>
+            <span class="rsub">{g.count} repas au total{#if g.members.some((m: any) => !m.count)} · dont une écriture jamais mangée{/if}</span>
           </div>
           <button class="merge" onclick={() => mergeGroup(g)}>Regrouper</button>
         </div>
