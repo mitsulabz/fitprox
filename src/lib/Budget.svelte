@@ -4,7 +4,7 @@
   import { saveAppState } from './supabase';
   import { refreshSharedFoods } from './sharedFoods';
   import { buildCatalog, foodKey } from './foods';
-  import { priceIndex, dailyCosts, groupCosts, historyFoods, missingFromCatalog } from './budget';
+  import { priceIndex, dailyCosts, groupCosts, historyFoods, missingFromCatalog, suggestGroups } from './budget';
   import { setFoodPrice } from './prices';
   import { userJ1 } from './account';
   import { get } from 'svelte/store';
@@ -22,11 +22,15 @@
   });
 
   const todayT = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
-  const daily = $derived(dailyCosts(days, idx, { fromT: j1T }));
+  // alias : variantes d'un même aliment partageant un prix (confirmées une à une)
+  const aliases = $derived(($appData as any)?.foodAliases ?? {});
+  const daily = $derived(dailyCosts(days, idx, { fromT: j1T, aliases }));
   let mode = $state<'week' | 'month'>('week');
   const groups = $derived(groupCosts(daily, mode, todayT));
-  const hist = $derived(historyFoods(days, idx, { fromT: j1T }));
+  const hist = $derived(historyFoods(days, idx, { fromT: j1T, aliases }));
   const missing = $derived(missingFromCatalog(days, idx, { fromT: j1T }));
+  const dupes = $derived(suggestGroups(hist, aliases));
+  const aliasCount = $derived(Object.keys(aliases).length);
   const unpriced = $derived(hist.filter((h: any) => !h.priced));
   // liste des prix à renseigner : alphabétique par défaut, recherche sans accents,
   // tri par fréquence disponible (les plus fréquents pèsent le plus sur le budget)
@@ -96,6 +100,27 @@
     setTimeout(() => (msg = ''), 3000);
   }
 
+  /* Fusion d'un groupe : les variantes pointent vers le pilote et disparaissent de la liste.
+     Rien n'est renommé ni supprimé dans l'historique ; annulable d'un bouton. */
+  async function saveAliases(next: Record<string, string>, okMsg: string) {
+    const s = get(session); const data = get(appData) as any;
+    if (!s || !data) return;
+    const newData = { ...data, foodAliases: next };
+    appData.set(newData);
+    try { await saveAppState(s.access_token, s.user.id, newData); msg = okMsg; }
+    catch { msg = 'Erreur de sauvegarde'; }
+    setTimeout(() => (msg = ''), 4000);
+  }
+  function mergeGroup(g: any) {
+    const next = { ...aliases };
+    for (const m of g.members) next[m.key] = g.key;
+    saveAliases(next, `✓ ${g.members.length + 1} écritures regroupées sous « ${g.name} »`);
+  }
+  function undoAliases() {
+    if (!confirm('Annuler tous les regroupements ?')) return;
+    saveAliases({}, '✓ Regroupements annulés');
+  }
+
   /* Aliments présents dans l'historique mais supprimés de la liste : on les recrée
      en « archivé » (visibles ici et dans Aliments, exclus de la fenêtre d'ajout)
      pour pouvoir leur donner un prix sans polluer la saisie des repas. */
@@ -163,6 +188,30 @@
       </svg>
       <div class="caption">En euros. {#if chart.bars.some((b: any) => b.partial)}La dernière barre, plus claire, est une période en cours.{/if}</div>
     </div>
+  {/if}
+
+  {#if dupes.length}
+    <div class="section-title">Doublons à regrouper ({dupes.length})</div>
+    <div class="caption" style="margin-bottom:8px">
+      Même aliment écrit de plusieurs façons. Regroupe-les : un seul prix vaudra pour toutes les écritures.
+      Ton historique n'est pas modifié.
+    </div>
+    <div class="list">
+      {#each dupes.slice(0, 25) as g (g.key)}
+        <div class="row dupe">
+          <div class="rinfo">
+            <span class="rname">{g.name}{#if g.kind === 'proche'}<span class="tag">à vérifier</span>{/if}</span>
+            <span class="rsub">+ {g.members.map((m: any) => m.name).join(' · ')}</span>
+            <span class="rsub">{g.count} repas au total</span>
+          </div>
+          <button class="merge" onclick={() => mergeGroup(g)}>Regrouper</button>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
+  {#if aliasCount}
+    <button class="undo" onclick={undoAliases}>Annuler les {aliasCount} regroupement{aliasCount > 1 ? 's' : ''}</button>
   {/if}
 
   {#if unpriced.length}
@@ -266,6 +315,10 @@
 .ok { width:32px; height:32px; border:none; border-radius:8px; background:var(--c-accent); color:var(--c-accent-fg); font-size:15px; cursor:pointer; }
 .ok:disabled { opacity:.4; cursor:default; }
 .tag { margin-left:6px; font-size:10px; font-weight:500; color:var(--c-text3); border:0.5px solid var(--c-border); border-radius:6px; padding:0 5px; vertical-align:1px; }
+.dupe { align-items:flex-start; }
+.dupe .rsub { white-space:normal; }
+.merge { flex-shrink:0; border:none; border-radius:8px; background:var(--c-accent); color:var(--c-accent-fg); font-size:12.5px; font-weight:600; padding:8px 12px; cursor:pointer; font-family:var(--font); }
+.undo { display:block; margin:10px auto 0; border:none; background:none; color:var(--c-text3); font-size:12px; text-decoration:underline; cursor:pointer; font-family:var(--font); }
 .restore { width:100%; padding:11px; border:1px dashed var(--c-accent); border-radius:var(--r-md); background:transparent; color:var(--c-accent); font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); }
 .restore:disabled { opacity:.5; cursor:default; }
 .empty { display:flex; flex-direction:column; align-items:center; gap:8px; padding:50px 20px; text-align:center; color:var(--c-text2); font-size:14px; }
