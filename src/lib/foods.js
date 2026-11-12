@@ -80,6 +80,7 @@ export function toSharedRow(f) {
     fi: opt(f?.fi, MAX_MACRO, 1),
     sel: opt(f?.sel, MAX_SEL, 2),
     prix: opt(f?.prix, MAX_PRIX, 3),
+    prix_unit: f?.prixUnit === 'kg' || f?.prixUnit === 'portion' ? f.prixUnit : null,
   };
 }
 

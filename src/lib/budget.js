@@ -23,6 +23,24 @@ export function parseEntry(entryName) {
   return { name: nm, mult: 1, grams: false };
 }
 
+/* Quantité lue dans le nom d'une ligne, en grammes (1 ml = 1 g : lait, yaourt, boisson).
+   « 300ml lait » -> 300 · « pain (10g) » -> 10 · « pot 120g ×2 » -> 240 · sinon null. */
+const QTY_RE = /(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grammes?|ml|cl|dl|l|litres?)\b/i;
+const QTY_FACTOR = { kg: 1000, g: 1, gr: 1, gramme: 1, grammes: 1, ml: 1, cl: 10, dl: 100, l: 1000, litre: 1000, litres: 1000 };
+
+export function lineGrams(entryName) {
+  const p = parseEntry(entryName);
+  if (!p || !(p.mult > 0)) return null;
+  // « (150g) » : la quantité est déjà dans le multiplicateur (base 100 g)
+  if (p.grams) return +(p.mult * 100).toFixed(2);
+  const m = String(p.name).match(QTY_RE);
+  if (!m) return null;
+  const f = QTY_FACTOR[m[2].toLowerCase()];
+  if (!f) return null;
+  const q = parseFloat(m[1].replace(',', '.')) * f;
+  return q > 0 ? +(q * p.mult).toFixed(2) : null;
+}
+
 const num = (v) => { const x = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) && x >= 0 ? x : null; };
 
 /* Index des prix par clé d'aliment. Une entrée en grammes (« (150g) ») ne peut
@@ -31,7 +49,11 @@ export function priceIndex(catalog) {
   const idx = new Map();
   for (const f of Array.isArray(catalog) ? catalog : []) {
     const k = foodKey(f?.name, f?.per);
-    if (!idx.has(k)) idx.set(k, { prix: num(f?.prix), per: f?.per === 'unit' ? 'unit' : '100', name: f?.name });
+    if (!idx.has(k)) idx.set(k, {
+      prix: num(f?.prix), per: f?.per === 'unit' ? 'unit' : '100', name: f?.name,
+      // 'kg' : prix au kilo (ou au litre) ; 'portion' : prix d'une ligne telle que notée
+      unit: f?.prixUnit === 'portion' ? 'portion' : (f?.prixUnit === 'kg' ? 'kg' : null),
+    });
   }
   return idx;
 }
@@ -81,15 +103,24 @@ export function entryCost(entry, idx, aliases, refs) {
   const key = resolveKey(raw, aliases);
   const hit = idx.get(key) ?? (p.grams ? idx.get(k100) : (idx.get(k100) ?? idx.get(kUnit)));
   const prix = hit ? hit.prix : null;
-  /* Prorata : si cette ligne est une autre quantité du même aliment (groupe de doublons),
-     son coût suit le rapport des calories. Aliment seul ou calories inconnues -> rapport 1. */
+  const grams = lineGrams(entryName);
+
+  /* Prix au kilo : coût = prix/kg × quantité de la ligne. C'est le cas le plus fiable,
+     la quantité étant écrite dans le nom (« 300ml lait », « pain (10g) »). */
+  if (hit && hit.unit === 'kg' && grams > 0) {
+    return { key, name: p.name, mult: p.mult, grams, ratio: 1, mode: 'kg',
+             priced: prix != null, cost: prix != null ? (prix / 1000) * grams : 0 };
+  }
+
+  /* Sinon, prix d'une ligne. Pour une variante regroupée (autre quantité du même
+     aliment), on met au prorata des calories de la ligne pilote. */
   let ratio = 1;
   const rawKey = p.grams ? k100 : raw;
   if (refs && key !== rawKey && kcal > 0) {
     const refTarget = refs[key], refSelf = kcal / p.mult;
     if (refTarget > 0 && refSelf > 0) ratio = refSelf / refTarget;
   }
-  return { key, name: p.name, mult: p.mult, ratio: +ratio.toFixed(3),
+  return { key, name: p.name, mult: p.mult, grams, ratio: +ratio.toFixed(3), mode: 'portion',
            priced: prix != null, cost: prix != null ? prix * p.mult * ratio : 0 };
 }
 
@@ -161,10 +192,11 @@ export function historyFoods(days, idx, { fromT = -Infinity, toT = Infinity, ali
       if (!map.has(c.key)) map.set(c.key, {
         key: c.key, name: c.name, per: c.key.endsWith('|unit') ? 'unit' : '100',
         count: 0, mult: 0, kcal: 0, cost: 0, priced: c.priced, inCatalog: idx.has(c.key),
-        unit: null, lastT: 0, variants: new Map(),
+        unit: null, lastT: 0, variants: new Map(), grams: c.grams ?? null, gramsKnown: c.grams > 0,
       });
       const e = map.get(c.key);
       e.variants.set(c.name, (e.variants.get(c.name) ?? 0) + 1);
+      if (!(e.grams > 0) && c.grams > 0) { e.grams = c.grams; e.gramsKnown = true; }
       e.count++; e.mult += c.mult; e.kcal += num(f?.k) ?? 0; e.cost += c.cost;
       if (t >= e.lastT && c.mult > 0) {
         e.lastT = t;

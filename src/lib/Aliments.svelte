@@ -218,7 +218,7 @@
       <label class="fld"><span>Glucides (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" bind:value={editing.g} /></label>
       <label class="fld"><span>Lipides (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" bind:value={editing.l} /></label>
       <label class="fld"><span>Fibres (g)</span><input type="number" inputmode="decimal" min="0" step="0.1" placeholder="inconnu" bind:value={editing.fi} /></label>
-      <label class="fld"><span>Prix (€ {editing.item.per === 'unit' ? '/ portion' : '/ 100 g'})</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="inconnu" bind:value={editing.prix} /></label>
+      <label class="fld"><span>Prix (€ / kg ou / ligne)</span><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="voir Budget" bind:value={editing.prix} /></label>
     </div>
     <p class="caption note">
       {#if editing.item.shared && editing.item.mine}Tu as ajouté cet aliment : la modification s'applique à tous les utilisateurs.

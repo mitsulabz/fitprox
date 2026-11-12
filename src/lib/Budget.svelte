@@ -86,6 +86,16 @@
 
   // ---- saisie des prix ----
   let draft = $state<Record<string, string>>({});
+  // unité de saisie : au kilo quand la quantité est lisible dans le nom, sinon par ligne
+  let unitDraft = $state<Record<string, 'kg' | 'portion'>>({});
+  const unitOf = (h: any): 'kg' | 'portion' => unitDraft[h.key] ?? (h.gramsKnown ? 'kg' : 'portion');
+  const qty = (g: number) => (g >= 1000 ? (g / 1000).toLocaleString('fr-FR') + ' kg' : Math.round(g) + ' g');
+  const preview = (h: any) => {
+    const v = parseFloat(String(draft[h.key] ?? '').replace(',', '.'));
+    if (!isFinite(v) || v <= 0) return '';
+    if (unitOf(h) === 'kg' && h.grams > 0) return `→ ${eur((v / 1000) * h.grams)} pour ${qty(h.grams)}`;
+    return `→ ${eur(v)} par ligne`;
+  };
   let busyKey = $state('');
   let msg = $state('');
 
@@ -95,7 +105,7 @@
     if (!isFinite(v) || v < 0) { msg = 'Prix invalide'; return; }
     const item = catalog.find((f: any) => f.key === h.key) ?? { name: h.name, per: h.per, key: h.key };
     busyKey = h.key; msg = '';
-    const r = await setFoodPrice(item, v);
+    const r = await setFoodPrice(item, v, unitOf(h));
     busyKey = '';
     msg = r.ok ? `✓ ${h.name} · ${r.msg}` : r.msg;
     if (r.ok) draft = { ...draft, [h.key]: '' };
@@ -219,7 +229,10 @@
 
   {#if unpriced.length}
     <div class="section-title">Prix à renseigner ({unpriced.length})</div>
-    <div class="caption" style="margin-bottom:8px">Classés par nombre de repas : les premiers pèsent le plus sur le budget. Prix {'pour 100 g, ou par portion'} selon l'aliment.</div>
+    <div class="caption" style="margin-bottom:8px">
+      Saisis le <b>prix au kilo</b> (celui affiché en rayon et sur les sites de courses) : l'app connaît la quantité de chaque ligne.
+      Pour un aliment sans quantité lisible (« œuf au plat »), bascule le bouton sur <b>/ligne</b> et donne le prix d'une fois.
+    </div>
     {#if missing.length}
       <button class="restore" onclick={restoreMissing} disabled={restoring}>
         {restoring ? 'Restauration…' : `Restaurer ${missing.length} aliment${missing.length > 1 ? 's' : ''} supprimé${missing.length > 1 ? 's' : ''} de la liste`}
@@ -242,12 +255,17 @@
         <div class="row">
           <div class="rinfo">
             <span class="rname">{h.name}{#if !h.inCatalog}<span class="tag">hors liste</span>{/if}</span>
-            <span class="rsub">{h.count} repas{#if h.variants && h.variants.length > 1} · {h.variants.length} écritures regroupées{/if} · prix d'une ligne « {h.name} »</span>
+            <span class="rsub">
+              {h.count} repas{#if h.variants && h.variants.length > 1} · {h.variants.length} écritures regroupées{/if}{#if h.gramsKnown} · quantité lue : {qty(h.grams)}{/if}
+            </span>
+            {#if draft[h.key]}<span class="rsub calc">{preview(h)}</span>{/if}
           </div>
           <div class="rprice">
             <input type="number" inputmode="decimal" min="0" step="0.01" placeholder="€"
               value={draft[h.key] ?? ''}
               oninput={(e) => (draft = { ...draft, [h.key]: (e.target as HTMLInputElement).value })} />
+            <button class="unit" onclick={() => (unitDraft = { ...unitDraft, [h.key]: unitOf(h) === 'kg' ? 'portion' : 'kg' })}
+              title="Prix au kilo, ou prix d'une ligne">{unitOf(h) === 'kg' ? '/kg' : '/ligne'}</button>
             <button class="ok" onclick={() => savePrice(h)} disabled={busyKey === h.key || !draft[h.key]}>✓</button>
           </div>
         </div>
@@ -315,6 +333,8 @@
 .rprice { display:flex; align-items:center; gap:6px; flex-shrink:0; }
 .rprice input { width:76px; padding:7px 8px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text); font-size:15px; text-align:right; font-family:var(--font); }
 .rprice input:focus { outline:none; border-color:var(--c-accent); }
+.unit { flex-shrink:0; min-width:44px; height:32px; padding:0 6px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text2); font-size:11px; font-weight:600; cursor:pointer; font-family:var(--font); }
+.calc { color:var(--c-accent); font-weight:600; }
 .ok { width:32px; height:32px; border:none; border-radius:8px; background:var(--c-accent); color:var(--c-accent-fg); font-size:15px; cursor:pointer; }
 .ok:disabled { opacity:.4; cursor:default; }
 .tag { margin-left:6px; font-size:10px; font-weight:500; color:var(--c-text3); border:0.5px solid var(--c-border); border-radius:6px; padding:0 5px; vertical-align:1px; }

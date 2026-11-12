@@ -63,6 +63,9 @@ create policy "shared_foods_delete_own"
 --        Partagé comme les macros ; ajouté après coup, donc en ALTER.
 alter table public.shared_foods
   add column if not exists prix numeric check (prix is null or (prix >= 0 and prix < 10000));
+--        unité du prix : 'kg' (prix au kilo ou au litre) ou 'portion' (prix d'une ligne telle que notée)
+alter table public.shared_foods
+  add column if not exists prix_unit text check (prix_unit is null or prix_unit in ('kg', 'portion'));
 
 -- 4) Diagnostic (lecture seule) : liste toutes les règles de sécurité du projet.
 --    Regarde en particulier les lignes de la table app_state.

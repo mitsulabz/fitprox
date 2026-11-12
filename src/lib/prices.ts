@@ -10,7 +10,7 @@ import { foodKey } from './foods';
 
 export type PriceResult = { ok: boolean; scope: 'tous' | 'perso'; msg: string };
 
-export async function setFoodPrice(item: any, prix: number | null): Promise<PriceResult> {
+export async function setFoodPrice(item: any, prix: number | null, unit: 'kg' | 'portion' = 'portion'): Promise<PriceResult> {
   const s = get(session); const data = get(appData) as any;
   if (!s || !data) return { ok: false, scope: 'perso', msg: 'Non connecté' };
   const value = prix == null || !isFinite(prix) || prix < 0 ? null : +(+prix).toFixed(3);
@@ -18,18 +18,18 @@ export async function setFoodPrice(item: any, prix: number | null): Promise<Pric
   let scope: 'tous' | 'perso' = 'perso';
 
   if (item.shared && item.mine && item.id) {
-    const r = await updateSharedFood(s.access_token, item.id, { prix: value });
+    const r = await updateSharedFood(s.access_token, item.id, { prix: value, prix_unit: value == null ? null : unit });
     if (r.ok) scope = 'tous';
     else if (!r.conflict) return { ok: false, scope: 'perso', msg: "Prix non enregistré (réseau, ou colonne « prix » absente : relance le SQL)" };
   }
 
   const favorites: any[] = Array.isArray(data.favorites) ? [...data.favorites] : [];
   const i = favorites.findIndex((f: any) => foodKey(f.name, f.per) === key);
-  if (i >= 0) favorites[i] = { ...favorites[i], prix: value };
+  if (i >= 0) favorites[i] = { ...favorites[i], prix: value, prixUnit: value == null ? null : unit };
   else if (scope === 'perso') favorites.unshift({
     name: item.name, per: item.per === 'unit' ? 'unit' : '100',
     kcal: item.kcal ?? 0, p: item.p ?? 0, g: item.g ?? 0, l: item.l ?? 0,
-    fi: item.fi ?? null, sel: item.sel ?? null, img: '', prix: value, ov: !!item.shared,
+    fi: item.fi ?? null, sel: item.sel ?? null, img: '', prix: value, prixUnit: value == null ? null : unit, ov: !!item.shared,
   });
 
   const newData = { ...data, favorites };
