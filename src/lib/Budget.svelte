@@ -42,7 +42,11 @@
                           count: 0, kcal: 0, priced: f.prix != null && f.prix !== '', inCatalog: true }));
     return [...hist, ...extras];
   });
-  const dupes = $derived(suggestGroups(groupCandidates, aliases));
+  /* Propositions écartées : signature = pilote + membres. Si une nouvelle écriture
+     apparaît plus tard, la signature change et le groupe est reproposé. */
+  const dismissed = $derived.by(() => new Set(Array.isArray(($appData as any)?.dismissedGroups) ? ($appData as any).dismissedGroups : []));
+  const sign = (g: any) => [g.key, ...g.members.map((m: any) => m.key)].sort().join('§');
+  const dupes = $derived(suggestGroups(groupCandidates, aliases).filter((g: any) => !dismissed.has(sign(g))));
   const aliasCount = $derived(Object.keys(aliases).length);
   const unpriced = $derived(hist.filter((h: any) => !h.priced));
   // liste des prix à renseigner : alphabétique par défaut, recherche sans accents,
@@ -139,6 +143,22 @@
     for (const m of g.members) next[m.key] = g.key;
     saveAliases(next, `✓ ${g.members.length + 1} écritures regroupées sous « ${g.name} »`);
   }
+  function dismissGroups(list: any[], okMsg: string) {
+    const s = get(session); const data = get(appData) as any;
+    if (!s || !data) return;
+    const next = [...dismissed, ...list.map(sign)];
+    const newData = { ...data, dismissedGroups: [...new Set(next)] };
+    appData.set(newData);
+    saveAppState(s.access_token, s.user.id, newData).then(() => { msg = okMsg; setTimeout(() => (msg = ''), 3500); });
+  }
+  function restoreDismissed() {
+    const s = get(session); const data = get(appData) as any;
+    if (!s || !data) return;
+    const newData = { ...data, dismissedGroups: [] };
+    appData.set(newData);
+    saveAppState(s.access_token, s.user.id, newData);
+  }
+
   function undoAliases() {
     if (!confirm('Annuler tous les regroupements ?')) return;
     saveAliases({}, '✓ Regroupements annulés');
@@ -215,6 +235,9 @@
 
   {#if dupes.length}
     <div class="section-title">Doublons à regrouper ({dupes.length})</div>
+    <button class="ignore-all" onclick={() => dismissGroups(dupes, `${dupes.length} proposition${dupes.length > 1 ? 's' : ''} ignorée${dupes.length > 1 ? 's' : ''}`)}>
+      Tout ignorer
+    </button>
     <div class="caption" style="margin-bottom:8px">
       Même aliment écrit de plusieurs façons. Tu ne donnes le prix qu'une fois, sur l'aliment en gras.
       <b>Les autres quantités sont calculées au prorata des calories</b> : si « 300 ml » coûte 0,33 €, « 100 ml » comptera 0,11 €.
@@ -228,10 +251,17 @@
             <span class="rsub">+ {g.members.map((m: any) => m.name).join(' · ')}</span>
             <span class="rsub">{g.count} repas au total{#if g.members.some((m: any) => !m.count)} · dont une écriture jamais mangée{/if}</span>
           </div>
-          <button class="merge" onclick={() => mergeGroup(g)}>Regrouper</button>
+          <div class="dactions">
+            <button class="merge" onclick={() => mergeGroup(g)}>Regrouper</button>
+            <button class="ignore" onclick={() => dismissGroups([g], 'Proposition ignorée')}>Ignorer</button>
+          </div>
         </div>
       {/each}
     </div>
+  {/if}
+
+  {#if dismissed.size}
+    <button class="undo" onclick={restoreDismissed}>Réafficher les {dismissed.size} proposition{dismissed.size > 1 ? 's' : ''} ignorée{dismissed.size > 1 ? 's' : ''}</button>
   {/if}
 
   {#if aliasCount}
@@ -351,6 +381,9 @@
 .tag { margin-left:6px; font-size:10px; font-weight:500; color:var(--c-text3); border:0.5px solid var(--c-border); border-radius:6px; padding:0 5px; vertical-align:1px; }
 .dupe { align-items:flex-start; }
 .dupe .rsub { white-space:normal; }
+.dactions { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+.ignore { border:1px solid var(--c-border); border-radius:8px; background:transparent; color:var(--c-text3); font-size:12px; padding:6px 10px; cursor:pointer; font-family:var(--font); }
+.ignore-all { display:block; margin:0 0 8px auto; border:none; background:none; color:var(--c-text3); font-size:12px; text-decoration:underline; cursor:pointer; font-family:var(--font); }
 .merge { flex-shrink:0; border:none; border-radius:8px; background:var(--c-accent); color:var(--c-accent-fg); font-size:12.5px; font-weight:600; padding:8px 12px; cursor:pointer; font-family:var(--font); }
 .undo { display:block; margin:10px auto 0; border:none; background:none; color:var(--c-text3); font-size:12px; text-decoration:underline; cursor:pointer; font-family:var(--font); }
 .restore { width:100%; padding:11px; border:1px dashed var(--c-accent); border-radius:var(--r-md); background:transparent; color:var(--c-accent); font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); }
