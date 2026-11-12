@@ -43,8 +43,36 @@ export function resolveKey(key, aliases) {
   return to && to !== key ? to : key;
 }
 
-// Coût d'une ligne de repas : { cost, key, name, mult, priced }
-export function entryCost(entryName, idx, aliases) {
+/* Énergie de référence d'un aliment : kcal d'une unité de sa base, d'après la façon
+   dont TU le notes (moyenne des lignes écrites exactement comme le pilote du groupe).
+   Sert à mettre les variantes au prorata : « 100ml de lait » coûte le tiers de « 300ml lait ». */
+export function kcalRefs(days, idx, { fromT = -Infinity, toT = Infinity, aliases = {} } = {}) {
+  const sum = new Map();
+  for (const [ds, d] of Object.entries(days ?? {})) {
+    const t = dsToT(ds);
+    if (!isFinite(t) || t < fromT || t > toT) continue;
+    for (const f of Array.isArray(d?.foods) ? d.foods : []) {
+      const p = parseEntry(f?.n);
+      if (!p || !(p.mult > 0)) continue;
+      const raw = idx.has(foodKey(p.name, '100')) || !idx.has(foodKey(p.name, 'unit')) ? foodKey(p.name, '100') : foodKey(p.name, 'unit');
+      // seules les lignes écrites comme le pilote (clé non redirigée) donnent la référence
+      if (aliases[raw]) continue;
+      const k = (num(f?.k) ?? 0) / p.mult;
+      if (!(k > 0)) continue;
+      const e = sum.get(raw) ?? { k: 0, n: 0 };
+      e.k += k; e.n++; sum.set(raw, e);
+    }
+  }
+  const refs = {};
+  for (const [k, v] of sum) refs[k] = v.k / v.n;
+  return refs;
+}
+
+/* Coût d'une ligne de repas : { cost, key, name, mult, priced }.
+   entry = nom, ou { n, k } pour appliquer le prorata des calories. */
+export function entryCost(entry, idx, aliases, refs) {
+  const entryName = typeof entry === 'string' ? entry : entry?.n;
+  const kcal = typeof entry === 'string' ? null : num(entry?.k);
   const p = parseEntry(entryName);
   if (!p || !(p.mult > 0)) return null;
   const k100 = foodKey(p.name, '100');
@@ -53,7 +81,16 @@ export function entryCost(entryName, idx, aliases) {
   const key = resolveKey(raw, aliases);
   const hit = idx.get(key) ?? (p.grams ? idx.get(k100) : (idx.get(k100) ?? idx.get(kUnit)));
   const prix = hit ? hit.prix : null;
-  return { key, name: p.name, mult: p.mult, priced: prix != null, cost: prix != null ? prix * p.mult : 0 };
+  /* Prorata : si cette ligne est une autre quantité du même aliment (groupe de doublons),
+     son coût suit le rapport des calories. Aliment seul ou calories inconnues -> rapport 1. */
+  let ratio = 1;
+  const rawKey = p.grams ? k100 : raw;
+  if (refs && key !== rawKey && kcal > 0) {
+    const refTarget = refs[key], refSelf = kcal / p.mult;
+    if (refTarget > 0 && refSelf > 0) ratio = refSelf / refTarget;
+  }
+  return { key, name: p.name, mult: p.mult, ratio: +ratio.toFixed(3),
+           priced: prix != null, cost: prix != null ? prix * p.mult * ratio : 0 };
 }
 
 const dsToT = (ds) => { const p = String(ds).split('/').map(Number); return p.length === 3 ? new Date(p[2], p[1] - 1, p[0]).getTime() : NaN; };
@@ -62,7 +99,7 @@ const pad = (n) => String(n).padStart(2, '0');
 /* Coût par jour sur la période [fromT, toT].
    kcalPriced / kcalTotal donnent le taux de couverture : un budget calculé sur
    la moitié des repas seulement doit être lisible comme tel. */
-export function dailyCosts(days, idx, { fromT = -Infinity, toT = Infinity, aliases = {} } = {}) {
+export function dailyCosts(days, idx, { fromT = -Infinity, toT = Infinity, aliases = {}, refs = {} } = {}) {
   const out = [];
   for (const [ds, d] of Object.entries(days ?? {})) {
     const t = dsToT(ds);
@@ -73,7 +110,7 @@ export function dailyCosts(days, idx, { fromT = -Infinity, toT = Infinity, alias
     for (const f of foods) {
       const k = num(f?.k) ?? 0;
       kcalTotal += k;
-      const c = entryCost(f?.n, idx, aliases);
+      const c = entryCost(f, idx, aliases, refs);
       if (c && c.priced) { cost += c.cost; kcalPriced += k; } else nUnpriced++;
     }
     out.push({ ds, t, cost: +cost.toFixed(2), kcalTotal, kcalPriced, nUnpriced, nFoods: foods.length });
@@ -113,13 +150,13 @@ export function groupCosts(daily, mode, todayT = Date.now()) {
 
 /* Aliments vus dans l'historique : total dépensé, nombre de repas, et macros
    reconstituées pour 1 unité de base (utile pour recréer un aliment supprimé). */
-export function historyFoods(days, idx, { fromT = -Infinity, toT = Infinity, aliases = {} } = {}) {
+export function historyFoods(days, idx, { fromT = -Infinity, toT = Infinity, aliases = {}, refs = {} } = {}) {
   const map = new Map();
   for (const [ds, d] of Object.entries(days ?? {})) {
     const t = dsToT(ds);
     if (!isFinite(t) || t < fromT || t > toT) continue;
     for (const f of Array.isArray(d?.foods) ? d.foods : []) {
-      const c = entryCost(f?.n, idx, aliases);
+      const c = entryCost(f, idx, aliases, refs);
       if (!c) continue;
       if (!map.has(c.key)) map.set(c.key, {
         key: c.key, name: c.name, per: c.key.endsWith('|unit') ? 'unit' : '100',

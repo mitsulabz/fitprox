@@ -4,7 +4,7 @@
   import { saveAppState } from './supabase';
   import { refreshSharedFoods } from './sharedFoods';
   import { buildCatalog, foodKey } from './foods';
-  import { priceIndex, dailyCosts, groupCosts, historyFoods, missingFromCatalog, suggestGroups } from './budget';
+  import { priceIndex, dailyCosts, groupCosts, historyFoods, missingFromCatalog, suggestGroups, kcalRefs } from './budget';
   import { setFoodPrice } from './prices';
   import { userJ1 } from './account';
   import { get } from 'svelte/store';
@@ -24,10 +24,12 @@
   const todayT = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
   // alias : variantes d'un même aliment partageant un prix (confirmées une à une)
   const aliases = $derived(($appData as any)?.foodAliases ?? {});
-  const daily = $derived(dailyCosts(days, idx, { fromT: j1T, aliases }));
+  // calories de référence : une variante d'un groupe coûte au prorata de ses calories
+  const refs = $derived(kcalRefs(days, idx, { fromT: j1T, aliases }));
+  const daily = $derived(dailyCosts(days, idx, { fromT: j1T, aliases, refs }));
   let mode = $state<'week' | 'month'>('week');
   const groups = $derived(groupCosts(daily, mode, todayT));
-  const hist = $derived(historyFoods(days, idx, { fromT: j1T, aliases }));
+  const hist = $derived(historyFoods(days, idx, { fromT: j1T, aliases, refs }));
   const missing = $derived(missingFromCatalog(days, idx, { fromT: j1T }));
   const dupes = $derived(suggestGroups(hist, aliases));
   const aliasCount = $derived(Object.keys(aliases).length);
@@ -193,7 +195,8 @@
   {#if dupes.length}
     <div class="section-title">Doublons à regrouper ({dupes.length})</div>
     <div class="caption" style="margin-bottom:8px">
-      Même aliment écrit de plusieurs façons. Regroupe-les : un seul prix vaudra pour toutes les écritures.
+      Même aliment écrit de plusieurs façons. Tu ne donnes le prix qu'une fois, sur l'aliment en gras.
+      <b>Les autres quantités sont calculées au prorata des calories</b> : si « 300 ml » coûte 0,33 €, « 100 ml » comptera 0,11 €.
       Ton historique n'est pas modifié.
     </div>
     <div class="list">
@@ -239,7 +242,7 @@
         <div class="row">
           <div class="rinfo">
             <span class="rname">{h.name}{#if !h.inCatalog}<span class="tag">hors liste</span>{/if}</span>
-            <span class="rsub">{h.count} repas · {Math.round(h.kcal)} kcal au total · {h.per === 'unit' ? 'par portion' : 'pour 100 g'}</span>
+            <span class="rsub">{h.count} repas{#if h.variants && h.variants.length > 1} · {h.variants.length} écritures regroupées{/if} · prix d'une ligne « {h.name} »</span>
           </div>
           <div class="rprice">
             <input type="number" inputmode="decimal" min="0" step="0.01" placeholder="€"
