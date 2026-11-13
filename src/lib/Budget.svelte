@@ -159,6 +159,32 @@
     saveAppState(s.access_token, s.user.id, newData);
   }
 
+  /* Rattachement manuel : relier un aliment à un autre quand l'app ne le propose pas
+     (« Pain au chocolat moyen (60g) » -> « pain au chocolat »). Même effet qu'un groupe :
+     le prix du pilote s'applique, au kilo ou au prorata des calories. */
+  let linking = $state<any>(null);
+  let linkSearch = $state('');
+  const linkTargets = $derived.by(() => {
+    if (!linking) return [];
+    const q = norm(linkSearch);
+    return groupCandidates
+      .filter((f: any) => f.key !== linking.key && !aliases[f.key] && (!q || norm(f.name).includes(q)))
+      .sort((a: any, b: any) => (b.priced ? 1 : 0) - (a.priced ? 1 : 0) || b.count - a.count || a.name.localeCompare(b.name, 'fr'))
+      .slice(0, 60);
+  });
+  function attachTo(target: any) {
+    const next = { ...aliases, [linking.key]: target.key };
+    const name = linking.name;
+    linking = null; linkSearch = '';
+    saveAliases(next, `✓ « ${name} » rattaché à « ${target.name} »`);
+  }
+  function detach(h: any) {
+    const next = { ...aliases };
+    let n = 0;
+    for (const [k, v] of Object.entries(next)) if (k === h.key || v === h.key) { delete next[k]; n++; }
+    if (n) saveAliases(next, `✓ ${n} rattachement${n > 1 ? 's' : ''} défait${n > 1 ? 's' : ''}`);
+  }
+
   function undoAliases() {
     if (!confirm('Annuler tous les regroupements ?')) return;
     saveAliases({}, '✓ Regroupements annulés');
@@ -307,6 +333,7 @@
               oninput={(e) => (draft = { ...draft, [h.key]: (e.target as HTMLInputElement).value })} />
             <button class="unit" onclick={() => (unitDraft = { ...unitDraft, [h.key]: unitOf(h) === 'kg' ? 'portion' : 'kg' })}
               title="Prix au kilo, ou prix d'une ligne">{unitOf(h) === 'kg' ? '/kg' : '/ligne'}</button>
+            <button class="unit" onclick={() => { linking = h; linkSearch = ''; }} title="Rattacher à un autre aliment">⇄</button>
             <button class="ok" onclick={() => savePrice(h)} disabled={busyKey === h.key || !draft[h.key]}>✓</button>
           </div>
         </div>
@@ -334,6 +361,28 @@
       <div class="empty-icon">🧾</div>
       <div>Aucun prix renseigné pour l'instant.</div>
       <div class="caption">Donne un prix à tes aliments (ici ou dans l'onglet Aliments) : tout ton historique est chiffré automatiquement.</div>
+    </div>
+  {/if}
+
+  {#if linking}
+    <button class="sheet-bg" aria-label="Fermer" onclick={() => (linking = null)}></button>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Rattacher un aliment">
+      <div class="sheet-title">Rattacher « {linking.name} »</div>
+      <div class="caption">Choisis l'aliment qui porte le prix. Les deux seront comptés ensemble : au kilo, chaque ligne suit sa quantité ; sinon le prix suit le rapport des calories.</div>
+      <input class="search" type="search" placeholder="Rechercher…" bind:value={linkSearch} autocomplete="off" spellcheck="false" />
+      <div class="list">
+        {#each linkTargets as tg (tg.key)}
+          <button class="row pick" onclick={() => attachTo(tg)}>
+            <span class="rinfo">
+              <span class="rname">{tg.name}</span>
+              <span class="rsub">{tg.count} repas{#if tg.priced} · prix renseigné{/if}</span>
+            </span>
+            <span class="rcost">→</span>
+          </button>
+        {/each}
+        {#if !linkTargets.length}<div class="caption" style="padding:10px 2px">Aucun aliment ne correspond.</div>{/if}
+      </div>
+      <button class="ignore-all" onclick={() => (linking = null)}>Annuler</button>
     </div>
   {/if}
 
@@ -388,6 +437,10 @@
 .undo { display:block; margin:10px auto 0; border:none; background:none; color:var(--c-text3); font-size:12px; text-decoration:underline; cursor:pointer; font-family:var(--font); }
 .restore { width:100%; padding:11px; border:1px dashed var(--c-accent); border-radius:var(--r-md); background:transparent; color:var(--c-accent); font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); }
 .restore:disabled { opacity:.5; cursor:default; }
+.sheet-bg { position:fixed; inset:0; z-index:300; border:0; padding:0; background:rgba(0,0,0,.45); cursor:default; }
+.sheet { position:fixed; left:0; right:0; bottom:0; z-index:301; max-height:86dvh; overflow-y:auto; background:var(--c-bg); border-radius:18px 18px 0 0; padding:16px 16px calc(18px + env(safe-area-inset-bottom, 0px)); display:flex; flex-direction:column; gap:10px; max-width:620px; margin:0 auto; }
+.sheet-title { font-size:16px; font-weight:600; color:var(--c-text); }
+.pick { width:100%; text-align:left; cursor:pointer; font-family:var(--font); }
 .empty { display:flex; flex-direction:column; align-items:center; gap:8px; padding:50px 20px; text-align:center; color:var(--c-text2); font-size:14px; }
 .empty-icon { font-size:40px; }
 .msg { position:sticky; bottom:8px; margin-top:12px; font-size:12.5px; color:var(--c-text); background:var(--c-surface2); border:1px solid var(--c-border); border-radius:var(--r-md); padding:9px 11px; }
