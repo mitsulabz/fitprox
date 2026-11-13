@@ -106,8 +106,12 @@ export function entryCost(entry, idx, aliases, refs) {
   const k100 = foodKey(p.name, '100');
   const kUnit = foodKey(p.name, 'unit');
   const raw = p.grams ? k100 : (idx.has(k100) ? k100 : (idx.has(kUnit) ? kUnit : k100));
-  const key = resolveKey(raw, aliases);
-  const hit = idx.get(key) ?? (p.grams ? idx.get(k100) : (idx.get(k100) ?? idx.get(kUnit)));
+  /* Son propre prix d'abord : corriger le prix d'un aliment doit toujours produire
+     un effet, même s'il est rattaché à un autre. L'héritage ne joue qu'à défaut. */
+  const own = idx.get(raw);
+  const useOwn = own && own.prix != null;
+  const key = useOwn ? raw : resolveKey(raw, aliases);
+  const hit = useOwn ? own : (idx.get(key) ?? (p.grams ? idx.get(k100) : (idx.get(k100) ?? idx.get(kUnit))));
   const prix = hit ? hit.prix : null;
   const grams = lineGrams(entryName);
 

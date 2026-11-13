@@ -4,6 +4,8 @@
   import { buildTimeline, sundayRule, APPORT_FLOOR, estimateBase, settingsFor } from './engine';
   import { isOwner, userJ1, userEnd, effectiveSettingsLog, basePrior } from './account';
   import { buildCatalog } from './foods';
+  import { refreshSharedFoods } from './sharedFoods';
+  import { onMount } from 'svelte';
   import { priceIndex, entryCost, kcalRefs } from './budget';
   import { sharedFoods } from './store';
   import { saveAppState, refreshToken } from "./supabase";
@@ -119,6 +121,8 @@
   }
 
   const todayPrice = $derived(dayPrice(foods));
+  // catalogue à jour : un prix corrigé ailleurs doit se voir ici tout de suite
+  onMount(() => { refreshSharedFoods(); });
 
   const todayRec = $derived((timeline.byKey as any)[todayKey] ?? null);
   const sundaySug = $derived(sundayRule(timeline, todayDate.getTime()));
@@ -290,7 +294,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V16.8";
+  const BUILD = "V16.9";
   // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
   // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
   async function hardReload() {
