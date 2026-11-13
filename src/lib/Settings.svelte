@@ -395,7 +395,7 @@ Les déficits de tous tes jours passés seront recalculés, et les réglages dat
     </button>
   </div>
 
-  <div class="version caption">FitProX · V17.0</div>
+  <div class="version caption">FitProX · V17.1</div>
 </div>
 
 {#if showSetup}

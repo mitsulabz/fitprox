@@ -344,3 +344,33 @@ export function suggestGroups(foods, aliases) {
   }
   return groups.map(({ toks, ...g }) => g).sort((a, b) => b.count - a.count);
 }
+
+/* ---- Répercuter les macros d'un aliment sur les repas déjà enregistrés ----
+   Mêmes règles de quantité que pour les prix (« Nom », « Nom ×2 », « Nom (250g) »,
+   ou nom de produit contenant sa quantité). Renvoie le journal modifié, le nombre
+   de repas touchés et l'écart total de calories, pour pouvoir le montrer avant d'appliquer. */
+export function restateMeals(days, food, idx) {
+  const key = foodKey(food?.name, food?.per);
+  const unit = { k: +food?.kcal || 0, p: +food?.p || 0, g: +food?.g || 0, l: +food?.l || 0,
+                 fi: food?.fi == null || food?.fi === '' ? null : +food.fi };
+  const out = {};
+  let n = 0, deltaK = 0, dayCount = 0;
+  for (const [ds, d] of Object.entries(days ?? {})) {
+    const foods = Array.isArray(d?.foods) ? d.foods : null;
+    if (!foods) { out[ds] = d; continue; }
+    let changed = false;
+    const next = foods.map((f) => {
+      const r = resolveEntry(f?.n, idx);
+      if (!r || r.key !== key || !(r.mult > 0)) return f;
+      const k = +(unit.k * r.mult).toFixed(0);
+      const np = +(unit.p * r.mult).toFixed(1), ng = +(unit.g * r.mult).toFixed(1), nl = +(unit.l * r.mult).toFixed(1);
+      const nfi = unit.fi == null ? f.fi : +(unit.fi * r.mult).toFixed(1);
+      if (f.k === k && f.p === np && f.g === ng && f.l === nl && (f.fi ?? null) === (nfi ?? null)) return f;
+      changed = true; n++; deltaK += k - (+f.k || 0);
+      return { ...f, k, p: np, g: ng, l: nl, ...(nfi == null ? {} : { fi: nfi }) };
+    });
+    if (changed) dayCount++;
+    out[ds] = changed ? { ...d, foods: next } : d;
+  }
+  return { days: out, n, dayCount, deltaK: Math.round(deltaK) };
+}

@@ -4,7 +4,7 @@
   import { saveAppState, deleteSharedFood, updateSharedFood } from './supabase';
   import { refreshSharedFoods, publishFoods } from './sharedFoods';
   import { buildCatalog, unsharedPersonal, foodKey, backfillFiber, renameFoodInDays } from './foods';
-  import { priceIndex, resolveKey } from './budget';
+  import { priceIndex, resolveKey, restateMeals } from './budget';
   import { get } from 'svelte/store';
 
   let filter = $state('');
@@ -92,7 +92,7 @@
 
   function openEdit(item: any) {
     editMsg = '';
-    editing = { item, name: item.name, prix: item.prix == null || item.prix === '' ? null : +item.prix,
+    editing = { item, restate: true, name: item.name, prix: item.prix == null || item.prix === '' ? null : +item.prix,
       prixUnit: ((item.prixUnit ?? item.prix_unit) === 'kg' ? 'kg' : 'portion'), kcal: Math.round(item.kcal ?? 0), p: +(item.p ?? 0), g: +(item.g ?? 0), l: +(item.l ?? 0),
       fi: item.fi == null || item.fi === '' ? null : +item.fi };
   }
@@ -140,9 +140,22 @@
     } else if (idx >= 0) {
       favorites[idx] = { ...favorites[idx], ...localVals, name: newName };
     }
-    let days = data.days ?? {}; let n = 0; let nr = 0;
+    let days = data.days ?? {}; let n = 0; let nr = 0; let rs: any = null;
     if (renamed) ({ days, n: nr } = renameFoodInDays(days, it.name, newName));
     if (vals.fi != null) ({ days, n } = backfillFiber(days, newName, vals.fi));
+    /* Macros répercutées sur les repas déjà enregistrés : les calories, le déficit du
+       jour, les bilans mensuels et la base mesurée changent donc aussi. D'où le
+       récapitulatif chiffré avant d'appliquer. */
+    if (editing.restate) {
+      const food = { name: newName, per: it.per, kcal: vals.kcal, p: vals.p, g: vals.g, l: vals.l, fi: vals.fi };
+      const sim = restateMeals(days, food, priceIndex([...catalog, food]));
+      if (sim.n) {
+        const dk = sim.deltaK > 0 ? `+${sim.deltaK.toLocaleString('fr')}` : sim.deltaK.toLocaleString('fr');
+        if (confirm(`Mettre à jour ${sim.n} repas déjà enregistré${sim.n > 1 ? 's' : ''} sur ${sim.dayCount} jour${sim.dayCount > 1 ? 's' : ''} ?\n\nTotal des calories de ces repas : ${dk} kcal.\nTes déficits passés, les bilans mensuels et ta base mesurée seront recalculés.`)) {
+          days = sim.days; rs = sim;
+        }
+      }
+    }
     const newData = { ...data, favorites, days, hiddenFoods };
     appData.set(newData);
     await saveAppState(s.access_token, s.user.id, newData);
@@ -150,7 +163,9 @@
     editBusy = false; editing = null;
     shareMsg = `✓ « ${renamed ? it.name + ' » renommé « ' + newName : it.name} » modifié ${scope}`
       + (nr ? ` · ${nr} repas passé${nr > 1 ? 's' : ''} renommé${nr > 1 ? 's' : ''}` : '')
-      + (n ? ` · fibres reportées sur ${n} repas passé${n > 1 ? 's' : ''}` : '');
+      + (nr ? '' : '')
+      + (rs ? ` · ${rs.n} repas passé${rs.n > 1 ? 's' : ''} recalculé${rs.n > 1 ? 's' : ''}` : '')
+      + (n && !rs ? ` · fibres reportées sur ${n} repas passé${n > 1 ? 's' : ''}` : '');
   }
 
   // Opt-in : chacun décide de publier ou non sa liste existante.
@@ -253,12 +268,16 @@
         </div>
       </div>
     </div>
+    <label class="chk">
+      <input type="checkbox" bind:checked={editing.restate} />
+      <span>Appliquer les macros aux repas déjà enregistrés (calories et déficits recalculés)</span>
+    </label>
     <p class="caption note">
       {#if editing.item.shared && editing.item.mine}Tu as ajouté cet aliment : la modification s'applique à tous les utilisateurs.
       {:else if editing.item.shared}Aliment ajouté par un autre utilisateur : ta modification ne s'applique qu'à toi.
       {:else}Aliment personnel.{/if}
       {#if editing.item.shared && !editing.item.mine}Le renommer crée ta version et masque l'originale chez toi.{/if}
-      Renommer met aussi à jour le nom dans tes repas passés. Les fibres y sont reportées ; les kcal et macros des jours passés ne changent pas.
+      Renommer met aussi à jour le nom dans tes repas passés.
     </p>
     {#if editMsg}<div class="share-msg">{editMsg}</div>{/if}
     <button class="share-btn save" onclick={saveEdit} disabled={editBusy}>{editBusy ? 'Enregistrement…' : 'Enregistrer'}</button>
@@ -287,6 +306,8 @@
 .fld input { width:100%; padding:10px 12px; border:1px solid var(--c-border); border-radius:var(--r-md); background:var(--c-surface); color:var(--c-text); font-size:16px; font-family:var(--font); }
 .fld input:focus { outline:none; border-color:var(--c-accent); }
 .note { margin:0; line-height:1.45; }
+.chk { display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:var(--c-text2); line-height:1.4; }
+.chk input { width:18px; height:18px; flex-shrink:0; margin:0; accent-color:var(--c-accent); }
 .seg2 { display:flex; background:var(--c-surface2); border-radius:9px; padding:2px; gap:2px; }
 .seg2 button { flex:1; border:0; background:transparent; color:var(--c-text2); font-size:12.5px; font-weight:500; padding:8px 6px; border-radius:7px; cursor:pointer; font-family:var(--font); }
 .seg2 button.on { background:var(--c-accent); color:var(--c-accent-fg); }
