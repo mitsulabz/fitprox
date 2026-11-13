@@ -85,7 +85,7 @@
   const chart = $derived.by(() => {
     const G = groups.slice(-(mode === 'week' ? 14 : 12));
     if (!G.length) return null;
-    const W = 320, PL = 30, PR = 8, PT = 16, PH = 92, PB = 22;
+    const W = 320, PL = 30, PR = 8, PT = 24, PH = 86, PB = 22; // PT : place pour le montant au-dessus des barres
     const hi = Math.max(...G.map((g: any) => g.cost)) || 1;
     const top = Math.ceil(hi / 10) * 10 || 10;
     const bw = (W - PL - PR) / G.length;
@@ -95,6 +95,8 @@
       x: +(PL + i * bw + bw * 0.16).toFixed(1), w: +(bw * 0.68).toFixed(1),
       y: +Y(g.cost).toFixed(1), h: +Math.max(1, PT + PH - Y(g.cost)).toFixed(1),
       cx: +(PL + i * bw + bw / 2).toFixed(1), label: gLabel(g), cost: g.cost,
+      // montant lisible au-dessus de la barre : entier dès 20 €, sinon 2 décimales
+      val: g.cost >= 20 ? Math.round(g.cost).toLocaleString('fr-FR') : g.cost.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       partial: !g.complete, show: G.length <= 8 || i % 2 === 0,
     }));
     return { vb: `0 0 ${W} ${PT + PH + PB}`, W, PL, PR, PT, yb: PT + PH, grid, bars };
@@ -283,10 +285,11 @@
         {/each}
         {#each chart.bars as b}
           <rect x={b.x} y={b.y} width={b.w} height={b.h} rx="2" class="bc-bar" class:partial={b.partial} />
+          <text x={b.cx} y={b.y - 4} class="bc-val" text-anchor="middle">{b.val}</text>
           {#if b.show}<text x={b.cx} y={chart.yb + 13} class="bc-tk" text-anchor="middle">{b.label}</text>{/if}
         {/each}
       </svg>
-      <div class="caption">En euros. {#if chart.bars.some((b: any) => b.partial)}La dernière barre, plus claire, est une période en cours.{/if}</div>
+      <div class="caption">Montants en euros. {#if chart.bars.some((b: any) => b.partial)}La dernière barre, plus claire, est une période en cours.{/if}</div>
     </div>
   {/if}
 
@@ -443,6 +446,7 @@
 .bc-tk { font-size:8.5px; fill:var(--c-text3); font-family:var(--font); }
 .bc-bar { fill:var(--c-accent); }
 .bc-bar.partial { opacity:.45; }
+.bc-val { font-size:9px; font-weight:600; fill:var(--c-text); font-family:var(--font); font-variant-numeric:tabular-nums; }
 .section-title { font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--c-text3); margin:18px 0 6px; }
 .list { display:flex; flex-direction:column; gap:6px; }
 .toolbar { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
