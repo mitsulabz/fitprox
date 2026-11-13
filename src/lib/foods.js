@@ -43,7 +43,16 @@ export function buildCatalog({ shared, personal, hidden, myId, archived = [] }) 
   for (const f of Array.isArray(personal) ? personal : []) {
     if (!hasName(f)) continue;
     const key = foodKey(f.name, f.per);
-    if (hid.has(key) || byKey.has(key)) continue;
+    if (hid.has(key)) continue;
+    if (byKey.has(key)) {
+      // même aliment déjà pris côté partagé : on récupère au moins le prix saisi en perso
+      const cur = byKey.get(key);
+      if ((cur.prix == null || cur.prix === '') && f.prix != null && f.prix !== '') {
+        cur.prix = f.prix;
+        cur.prixUnit = f.prixUnit ?? f.prix_unit ?? cur.prixUnit;
+      }
+      continue;
+    }
     byKey.set(key, { ...f, key, shared: false, mine: true, archived: arc.has(key) });
   }
   // départage par clé : même nom avec deux bases -> ordre stable
