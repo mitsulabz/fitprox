@@ -29,7 +29,13 @@
   const refs = $derived(kcalRefs(days, idx, { fromT: j1T, aliases }));
   const daily = $derived(dailyCosts(days, idx, { fromT: j1T, aliases, refs }));
   let mode = $state<'week' | 'month'>('week');
-  const groups = $derived(groupCosts(daily, mode, todayT));
+  /* On écarte la première période si elle est tronquée (le suivi a commencé en cours
+     de mois ou de semaine) : sa barre serait anormalement basse, donc trompeuse. */
+  const groups = $derived.by(() => {
+    const all = groupCosts(daily, mode, todayT);
+    const firstT = daily.length ? daily[0].t : 0;
+    return all.length && all[0].start < firstT ? all.slice(1) : all;
+  });
   const hist = $derived(historyFoods(days, idx, { fromT: j1T, aliases, refs }));
   const missing = $derived(missingFromCatalog(days, idx, { fromT: j1T }));
   /* Candidats au regroupement : les aliments mangés, plus ceux de la liste jamais
