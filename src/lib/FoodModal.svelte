@@ -4,6 +4,7 @@
   import { saveAppState, refreshToken } from './supabase';
   import { refreshSharedFoods, publishFoods } from './sharedFoods';
   import { buildCatalog, foodKey } from './foods';
+  import { lineGrams } from './budget';
   import { get } from 'svelte/store';
 
 
@@ -20,7 +21,7 @@
   }
   const SUPABASE_URL = 'https://arydsxswhbgpfayjgtak.supabase.co';
 
-  type Food = { n: string; k: number; p: number; g: number; l: number; fi?: number | null };
+  type Food = { n: string; k: number; p: number; g: number; l: number; fi?: number | null; prix?: number | null; prixUnit?: 'kg' | 'portion' };
   type OFFProd = { n: string; k100: number; p100: number; g100: number; l100: number; fi100: number | null };
 
   // Fibres : toujours enregistrées quand on les connaît ; affichées si l'option du profil est active
@@ -48,6 +49,10 @@
   let manG = $state('');
   let manL = $state('');
   let manFi = $state('');
+  let manPrix = $state('');
+  // prix au kilo si la quantité est lisible dans le nom (« Riz 1kg », « 300ml lait »), sinon par ligne
+  let manUnitSet = $state<'kg' | 'portion' | null>(null);
+  const manUnit = $derived<'kg' | 'portion'>(manUnitSet ?? ((lineGrams(manName.trim()) ?? 0) > 0 ? 'kg' : 'portion'));
 
   // IA
   let aiText = $state('');
@@ -91,7 +96,9 @@
     if (!skipFav) {
       const key = foodKey(food.n, '100');
       if (!favs.some((f: any) => foodKey(f.name, f.per) === key)) {
-        newFav = { name: food.n, per: '100', kcal: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1), ...fi, img: '' };
+        const prix = food.prix != null && isFinite(food.prix) && food.prix > 0
+          ? { prix: +food.prix.toFixed(3), prixUnit: food.prixUnit ?? 'portion' } : {};
+        newFav = { name: food.n, per: '100', kcal: Math.round(food.k), p: +food.p.toFixed(1), g: +food.g.toFixed(1), l: +food.l.toFixed(1), ...fi, ...prix, img: '' };
         favs.unshift(newFav);
       }
     }
@@ -176,7 +183,10 @@
 
   function addManual() {
     if (!manName.trim() || !manKcal) return;
-    commitFood({ n: manName.trim(), k: +manKcal, p: +(manP || 0), g: +(manG || 0), l: +(manL || 0), fi: manFi === '' || manFi == null ? null : +manFi });
+    const prix = manPrix === '' || manPrix == null ? null : +String(manPrix).replace(',', '.');
+    commitFood({ n: manName.trim(), k: +manKcal, p: +(manP || 0), g: +(manG || 0), l: +(manL || 0),
+      fi: manFi === '' || manFi == null ? null : +manFi,
+      prix: prix != null && isFinite(prix) && prix > 0 ? prix : null, prixUnit: manUnit });
   }
 
   async function estimateAI() {
@@ -345,6 +355,17 @@
               <input type="number" min="0" step="0.1" placeholder="0" bind:value={manFi} />
             </div>
             {/if}
+            <div class="field">
+              <label>Prix (€)</label>
+              <input type="number" min="0" step="0.01" placeholder="facultatif" bind:value={manPrix} />
+            </div>
+            <div class="field">
+              <label>Prix exprimé</label>
+              <div class="seg2">
+                <button type="button" class:on={manUnit === 'kg'} onclick={() => (manUnitSet = 'kg')}>au kilo</button>
+                <button type="button" class:on={manUnit !== 'kg'} onclick={() => (manUnitSet = 'portion')}>par ligne</button>
+              </div>
+            </div>
           </div>
           <button type="submit" class="btn-accent full" disabled={!manName.trim() || !manKcal}>
             Ajouter au journal
@@ -424,4 +445,7 @@ textarea:focus { outline:none; border-color:var(--c-accent); }
 .field input { padding:9px 12px; border:1px solid var(--c-border); border-radius:var(--r-md); background:var(--c-surface); color:var(--c-text); font-size:14px; font-family:var(--font); }
 .field input:focus { outline:none; border-color:var(--c-accent); }
 .field-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.seg2 { display:flex; background:var(--c-surface); border:1px solid var(--c-border); border-radius:var(--r-md); padding:2px; gap:2px; }
+.seg2 button { flex:1; border:0; background:transparent; color:var(--c-text2); font-size:13px; font-weight:500; padding:8px 6px; border-radius:8px; cursor:pointer; font-family:var(--font); }
+.seg2 button.on { background:var(--c-accent); color:var(--c-accent-fg); }
 </style>
