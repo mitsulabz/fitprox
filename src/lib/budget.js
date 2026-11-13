@@ -28,16 +28,21 @@ export function parseEntry(entryName) {
 const QTY_RE = /(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grammes?|ml|cl|dl|l|litres?)\b/i;
 const QTY_FACTOR = { kg: 1000, g: 1, gr: 1, gramme: 1, grammes: 1, ml: 1, cl: 10, dl: 100, l: 1000, litre: 1000, litres: 1000 };
 
+export function qtyGrams(name) {
+  const m = String(name ?? '').match(QTY_RE);
+  if (!m) return null;
+  const f = QTY_FACTOR[m[2].toLowerCase()];
+  if (!f) return null;
+  const q = parseFloat(m[1].replace(',', '.')) * f;
+  return q > 0 ? +q.toFixed(2) : null;
+}
+
 export function lineGrams(entryName) {
   const p = parseEntry(entryName);
   if (!p || !(p.mult > 0)) return null;
   // « (150g) » : la quantité est déjà dans le multiplicateur (base 100 g)
   if (p.grams) return +(p.mult * 100).toFixed(2);
-  const m = String(p.name).match(QTY_RE);
-  if (!m) return null;
-  const f = QTY_FACTOR[m[2].toLowerCase()];
-  if (!f) return null;
-  const q = parseFloat(m[1].replace(',', '.')) * f;
+  const q = qtyGrams(p.name);
   return q > 0 ? +(q * p.mult).toFixed(2) : null;
 }
 
@@ -80,9 +85,9 @@ export function kcalRefs(days, idx, { fromT = -Infinity, toT = Infinity, aliases
     const t = dsToT(ds);
     if (!isFinite(t) || t < fromT || t > toT) continue;
     for (const f of Array.isArray(d?.foods) ? d.foods : []) {
-      const p = parseEntry(f?.n);
+      const p = resolveEntry(f?.n, idx);
       if (!p || !(p.mult > 0)) continue;
-      const raw = idx.has(foodKey(p.name, '100')) || !idx.has(foodKey(p.name, 'unit')) ? foodKey(p.name, '100') : foodKey(p.name, 'unit');
+      const raw = p.key;
       // seules les lignes écrites comme le pilote (clé non redirigée) donnent la référence
       if (aliases[raw]) continue;
       const k = (num(f?.k) ?? 0) / p.mult;
@@ -98,14 +103,37 @@ export function kcalRefs(days, idx, { fromT = -Infinity, toT = Infinity, aliases
 
 /* Coût d'une ligne de repas : { cost, key, name, mult, priced }.
    entry = nom, ou { n, k } pour appliquer le prorata des calories. */
+/* À quel aliment correspond une ligne, et en quelle quantité ?
+   « Pain complet (250g) » : 250 g d'un aliment dont les valeurs sont pour 100 g -> ×2,5.
+   « Pastabox pesto (400g) » : le « (400g) » fait partie du NOM du produit (la barquette),
+   ses valeurs sont déjà celles de la boîte -> ×1. On tranche en regardant si le nom
+   complet existe dans la liste d'aliments. */
+export function resolveEntry(entryName, idx) {
+  const nm = String(entryName ?? '').trim();
+  if (!nm) return null;
+  const m = nm.match(MULT_RE);
+  const base = m ? m[1].trim() : nm;
+  const times = m ? (parseFloat(m[2].replace(',', '.')) || 0) : 1;
+  if (!(times > 0) || !base) return null;
+  const known = (n) => idx && (idx.has(foodKey(n, '100')) || idx.has(foodKey(n, 'unit')));
+  const keyOf = (n) => (idx && idx.has(foodKey(n, 'unit')) && !idx.has(foodKey(n, '100')) ? foodKey(n, 'unit') : foodKey(n, '100'));
+  const g = base.match(GRAM_RE);
+  if (g && !known(base)) {
+    const inner = g[1].trim();
+    const grams = parseFloat(g[2].replace(',', '.')) || 0;
+    if (inner && grams > 0) return { name: inner, mult: times * (grams / 100), grams: grams * times, key: keyOf(inner) };
+  }
+  return { name: base, mult: times, grams: (qtyGrams(base) ?? 0) * times || null, key: keyOf(base) };
+}
+
 export function entryCost(entry, idx, aliases, refs) {
   const entryName = typeof entry === 'string' ? entry : entry?.n;
   const kcal = typeof entry === 'string' ? null : num(entry?.k);
-  const p = parseEntry(entryName);
+  const p = resolveEntry(entryName, idx);
   if (!p || !(p.mult > 0)) return null;
   const k100 = foodKey(p.name, '100');
   const kUnit = foodKey(p.name, 'unit');
-  const raw = p.grams ? k100 : (idx.has(k100) ? k100 : (idx.has(kUnit) ? kUnit : k100));
+  const raw = p.key;
   /* Son propre prix d'abord : corriger le prix d'un aliment doit toujours produire
      un effet, même s'il est rattaché à un autre. L'héritage ne joue qu'à défaut. */
   const own = idx.get(raw);
@@ -113,7 +141,7 @@ export function entryCost(entry, idx, aliases, refs) {
   const key = useOwn ? raw : resolveKey(raw, aliases);
   const hit = useOwn ? own : (idx.get(key) ?? (p.grams ? idx.get(k100) : (idx.get(k100) ?? idx.get(kUnit))));
   const prix = hit ? hit.prix : null;
-  const grams = lineGrams(entryName);
+  const grams = p.grams > 0 ? p.grams : lineGrams(entryName);
 
   /* Prix au kilo : coût = prix/kg × quantité de la ligne. C'est le cas le plus fiable,
      la quantité étant écrite dans le nom (« 300ml lait », « pain (10g) »). */
@@ -125,7 +153,7 @@ export function entryCost(entry, idx, aliases, refs) {
   /* Sinon, prix d'une ligne. Pour une variante regroupée (autre quantité du même
      aliment), on met au prorata des calories de la ligne pilote. */
   let ratio = 1;
-  const rawKey = p.grams ? k100 : raw;
+  const rawKey = raw;
   if (refs && key !== rawKey && kcal > 0) {
     const refTarget = refs[key], refSelf = kcal / p.mult;
     if (refTarget > 0 && refSelf > 0) ratio = refSelf / refTarget;
