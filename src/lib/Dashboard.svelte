@@ -3,6 +3,9 @@
   import { nf } from './calc';
   import { buildTimeline, sundayRule, APPORT_FLOOR, estimateBase, settingsFor } from './engine';
   import { isOwner, userJ1, userEnd, effectiveSettingsLog, basePrior } from './account';
+  import { buildCatalog } from './foods';
+  import { priceIndex, entryCost, kcalRefs } from './budget';
+  import { sharedFoods } from './store';
   import { saveAppState, refreshToken } from "./supabase";
   import { get } from "svelte/store";
   import FoodModal from "./FoodModal.svelte";
@@ -92,6 +95,31 @@
     };
     return buildTimeline({ dateList, settingsLog, todayTime: todayDate.getTime(), dayFrac, info });
   });
+  /* Coût des repas : mêmes prix et mêmes règles que l'onglet Budget
+     (prix au kilo × quantité de la ligne, ou prix d'une ligne). */
+  const priceCat = $derived(buildCatalog({
+    shared: $sharedFoods, personal: ($appData as any)?.favorites,
+    hidden: ($appData as any)?.hiddenFoods, archived: ($appData as any)?.archivedFoods, myId: uid,
+  }));
+  const pIdx = $derived(priceIndex(priceCat));
+  const pAliases = $derived(($appData as any)?.foodAliases ?? {});
+  const pRefs = $derived(kcalRefs(days, pIdx, { aliases: pAliases }));
+  const hasPrices = $derived(priceCat.some((f: any) => f.prix != null && f.prix !== ''));
+  const eurFmt = (v: number) => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  function foodCost(f: any): number | null {
+    const c: any = entryCost(f, pIdx, pAliases, pRefs);
+    return c && c.priced ? c.cost : null;
+  }
+  const foodPrice = (f: any) => { const c = foodCost(f); return c == null ? '' : eurFmt(c); };
+  // total du jour : somme des lignes chiffrées, avec le nombre de lignes sans prix
+  function dayPrice(list: any[]): { txt: string; missing: number } {
+    let sum = 0, missing = 0;
+    for (const f of list ?? []) { const c = foodCost(f); if (c == null) missing++; else sum += c; }
+    return { txt: sum > 0 ? eurFmt(sum) : '', missing };
+  }
+
+  const todayPrice = $derived(dayPrice(foods));
+
   const todayRec = $derived((timeline.byKey as any)[todayKey] ?? null);
   const sundaySug = $derived(sundayRule(timeline, todayDate.getTime()));
 
@@ -262,7 +290,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V16.6";
+  const BUILD = "V16.7";
   // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
   // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
   async function hardReload() {
@@ -488,7 +516,7 @@
           <div class="food-item">
             <div class="food-nm">
               <span class="food-n">{food.n}</span>
-              <span class="food-m">P {Math.round(food.p ?? 0)}g · G {Math.round(food.g ?? 0)}g · L {Math.round(food.l ?? 0)}g{trackFiber && food.fi != null ? ' · F ' + Math.round(food.fi) + 'g' : ''}</span>
+              <span class="food-m">P {Math.round(food.p ?? 0)}g · G {Math.round(food.g ?? 0)}g · L {Math.round(food.l ?? 0)}g{trackFiber && food.fi != null ? ' · F ' + Math.round(food.fi) + 'g' : ''}{#if foodPrice(food)}<span class="food-eur"> · {foodPrice(food)}</span>{/if}</span>
             </div>
             <span class="food-k">{Math.round(food.k)} kcal</span>
             <button class="food-del" onclick={() => removeFood(i)} aria-label="Supprimer">
@@ -500,7 +528,7 @@
         {/each}
         <div class="foods-total">
           <span>Total</span>
-          <span class="total-k">{Math.round(macros.k)} kcal</span>
+          <span class="total-k">{Math.round(macros.k)} kcal{#if todayPrice.txt}<span class="total-eur"> · {todayPrice.txt}{#if todayPrice.missing}<span class="total-part"> (partiel)</span>{/if}</span>{/if}</span>
         </div>
       </div>
     {/if}
@@ -584,7 +612,7 @@
         {/if}
       </div>
       {#if day.foods.length}
-      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{trackFiber ? ' · F ' + (day.fi != null ? Math.round(day.fi) + 'g' : '–') : ''}{#if day.deficit !== null}{' · '}<span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:{day.gFat > 0 ? 'var(--c-red)' : 'var(--c-green)'}">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}</div>
+      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{trackFiber ? ' · F ' + (day.fi != null ? Math.round(day.fi) + 'g' : '–') : ''}{#if day.deficit !== null}{' · '}<span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:{day.gFat > 0 ? 'var(--c-red)' : 'var(--c-green)'}">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}{#if hasPrices}{@const dp = dayPrice(day.foods)}{#if dp.txt}<span class="grams-detail"><span class="food-eur">{dp.txt}{#if dp.missing} (partiel){/if}</span></span>{/if}{/if}</div>
       {/if}
     </summary>
     <div class="hist-foods">
@@ -592,7 +620,7 @@
       <div class="hist-food-row">
         <div class="food-nm">
           <span class="food-n">{f.n}</span>
-          <span class="food-m">P {Math.round(f.p ?? 0)}g · G {Math.round(f.g ?? 0)}g · L {Math.round(f.l ?? 0)}g{trackFiber && f.fi != null ? ' · F ' + Math.round(f.fi) + 'g' : ''}</span>
+          <span class="food-m">P {Math.round(f.p ?? 0)}g · G {Math.round(f.g ?? 0)}g · L {Math.round(f.l ?? 0)}g{trackFiber && f.fi != null ? ' · F ' + Math.round(f.fi) + 'g' : ''}{#if foodPrice(f)}<span class="food-eur"> · {foodPrice(f)}</span>{/if}</span>
         </div>
         <span class="food-k">{Math.round(f.k)} kcal</span>
         <button class="food-del" onclick={() => removeFood(fi, day.key)} aria-label="Supprimer">
@@ -714,6 +742,9 @@
 .food-del:hover { color:var(--c-red,#e05); }
 .foods-total { display:flex; justify-content:space-between; padding:8px 0 0; font-size:13px; color:var(--c-text2); font-weight:500; }
 .total-k { color:var(--c-accent); font-weight:600; }
+.total-eur { color:var(--c-text2); font-weight:600; }
+.total-part { color:var(--c-text3); font-weight:400; font-size:11px; }
+.food-eur { color:var(--c-text2); font-weight:600; }
 
 .stats-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
 .stat-card { display:flex; flex-direction:column; gap:4px; padding:16px; }
