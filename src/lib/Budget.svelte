@@ -6,6 +6,7 @@
   import { buildCatalog, foodKey } from './foods';
   import { priceIndex, dailyCosts, groupCosts, historyFoods, missingFromCatalog, suggestGroups, kcalRefs } from './budget';
   import { setFoodPrice } from './prices';
+  import { fitPriceModel, estimatePrice } from './estimate';
   import { userJ1 } from './account';
   import { get } from 'svelte/store';
 
@@ -99,6 +100,36 @@
     return { vb: `0 0 ${W} ${PT + PH + PB}`, W, PL, PR, PT, yb: PT + PH, grid, bars };
   });
 
+  /* ---- Estimation (à valider) ----
+     Le modèle apprend sur tes aliments déjà chiffrés au kilo : le prix suit surtout
+     les protéines et l'énergie. Les familles connues (lait, fromage, pâtes…) priment. */
+  const priceModel = $derived.by(() => fitPriceModel(
+    catalog
+      .filter((f: any) => f.prix != null && f.prix !== '' && (f.prixUnit ?? f.prix_unit) === 'kg')
+      .map((f: any) => ({ kcal: +f.kcal || 0, prot: +f.p || 0, perKg: +f.prix }))
+  ));
+  function foodInfo(h: any) {
+    const f = catalog.find((x: any) => x.key === h.key);
+    return { name: h.name, grams: h.grams ?? 0,
+             kcal100: +(f?.kcal ?? 0) || (h.count ? h.kcal / h.count : 0),
+             prot100: +(f?.p ?? 0) || 0, kcalPerMeal: h.count ? h.kcal / h.count : 0 };
+  }
+  let estimated = $state<Record<string, string>>({});
+  function estimateOne(h: any) {
+    const e = estimatePrice(foodInfo(h), priceModel);
+    if (!e) { msg = `Pas d'estimation possible pour « ${h.name} »`; setTimeout(() => (msg = ''), 3000); return false; }
+    draft = { ...draft, [h.key]: String(e.value).replace('.', ',') };
+    unitDraft = { ...unitDraft, [h.key]: e.unit };
+    estimated = { ...estimated, [h.key]: e.source ?? 'estimé' };
+    return true;
+  }
+  function estimateAll() {
+    let n = 0;
+    for (const h of unpricedView) if (!draft[h.key] && estimateOne(h)) n++;
+    msg = n ? `${n} prix estimés — vérifie et valide ceux qui te vont` : "Aucune estimation possible";
+    setTimeout(() => (msg = ''), 5000);
+  }
+
   // ---- saisie des prix ----
   let draft = $state<Record<string, string>>({});
   // unité de saisie : au kilo quand la quantité est lisible dans le nom, sinon par ligne
@@ -123,7 +154,7 @@
     const r = await setFoodPrice(item, v, unitOf(h));
     busyKey = '';
     msg = r.ok ? `✓ ${h.name} · ${r.msg}` : r.msg;
-    if (r.ok) draft = { ...draft, [h.key]: '' };
+    if (r.ok) { draft = { ...draft, [h.key]: '' }; estimated = { ...estimated, [h.key]: '' }; }
     setTimeout(() => (msg = ''), 3000);
   }
 
@@ -306,6 +337,7 @@
       </button>
       <div class="caption" style="margin:4px 2px 10px">Ils reviennent en « archivé » : modifiables dans Aliments, mais pas proposés quand tu ajoutes un repas.</div>
     {/if}
+    <button class="ignore-all" onclick={estimateAll}>Estimer tous les prix manquants</button>
     <div class="toolbar">
       <input class="search" type="search" placeholder="Rechercher un aliment…" bind:value={search}
         autocomplete="off" autocorrect="off" spellcheck="false" />
@@ -325,7 +357,7 @@
             <span class="rsub">
               {h.count} repas{#if h.variants && h.variants.length > 1} · {h.variants.length} écritures regroupées{/if}{#if h.gramsKnown} · quantité lue : {qty(h.grams)}{/if}
             </span>
-            {#if draft[h.key]}<span class="rsub calc">{preview(h)}</span>{/if}
+            {#if draft[h.key]}<span class="rsub calc">{preview(h)}{#if estimated[h.key]} · estimé ({estimated[h.key]}){/if}</span>{/if}
           </div>
           <div class="rprice">
             <input type="number" inputmode="decimal" min="0" step="0.01" placeholder="€"
@@ -334,6 +366,7 @@
             <button class="unit" onclick={() => (unitDraft = { ...unitDraft, [h.key]: unitOf(h) === 'kg' ? 'portion' : 'kg' })}
               title="Prix au kilo, ou prix d'une ligne">{unitOf(h) === 'kg' ? '/kg' : '/ligne'}</button>
             <button class="unit" onclick={() => { linking = h; linkSearch = ''; }} title="Rattacher à un autre aliment">⇄</button>
+            <button class="unit est" onclick={() => estimateOne(h)} title="Proposer un prix, à vérifier">≈</button>
             <button class="ok" onclick={() => savePrice(h)} disabled={busyKey === h.key || !draft[h.key]}>✓</button>
           </div>
         </div>
@@ -425,6 +458,7 @@
 .rprice input:focus { outline:none; border-color:var(--c-accent); }
 .unit { flex-shrink:0; min-width:44px; height:32px; padding:0 6px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); color:var(--c-text2); font-size:11px; font-weight:600; cursor:pointer; font-family:var(--font); }
 .calc { color:var(--c-accent); font-weight:600; }
+.est { color:var(--c-accent); border-color:var(--c-accent); }
 .ok { width:32px; height:32px; border:none; border-radius:8px; background:var(--c-accent); color:var(--c-accent-fg); font-size:15px; cursor:pointer; }
 .ok:disabled { opacity:.4; cursor:default; }
 .tag { margin-left:6px; font-size:10px; font-weight:500; color:var(--c-text3); border:0.5px solid var(--c-border); border-radius:6px; padding:0 5px; vertical-align:1px; }
