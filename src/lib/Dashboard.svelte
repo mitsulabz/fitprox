@@ -290,7 +290,7 @@
   function pct(a: number, b: number) { return b > 0 ? Math.min(100, Math.round(a/b*100)) : 0; }
   function fmt(n: number) { return (n > 0 ? '+' : '') + Math.round(n).toLocaleString('fr'); }
 
-  const BUILD = "V16.7";
+  const BUILD = "V16.8";
   // Recharge la dernière version déployée (en PWA sur iPhone il n'y a pas de bouton « recharger ») :
   // URL anti-cache pour forcer un index.html frais, et mise à jour d'un éventuel service worker.
   async function hardReload() {
@@ -603,7 +603,7 @@
   <details class="card hist-card">
     <summary class="hist-summary">
       <div class="hist-top">
-        <span class="hist-date">{day.label}{#if day.jNum} (J{day.jNum}){/if}</span>
+        <span class="hist-date">{day.label}{#if hasPrices && dayPrice(day.foods).txt}<span class="hist-eur"> · {dayPrice(day.foods).txt}{#if dayPrice(day.foods).missing} (partiel){/if}</span>{/if}</span>
         <span class="hist-kcal" style="color:{day.foods.length ? (day.total <= day.expend ? 'var(--c-green)' : 'var(--c-red)') : 'var(--c-text2)'}">
           {Math.round(day.total).toLocaleString('fr')} kcal
         </span>
@@ -612,7 +612,7 @@
         {/if}
       </div>
       {#if day.foods.length}
-      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{trackFiber ? ' · F ' + (day.fi != null ? Math.round(day.fi) + 'g' : '–') : ''}{#if day.deficit !== null}{' · '}<span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:{day.gFat > 0 ? 'var(--c-red)' : 'var(--c-green)'}">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}{#if hasPrices}{@const dp = dayPrice(day.foods)}{#if dp.txt}<span class="grams-detail"><span class="food-eur">{dp.txt}{#if dp.missing} (partiel){/if}</span></span>{/if}{/if}</div>
+      <div class="hist-macros">P {Math.round(day.p)}g · G {Math.round(day.g)}g · L {Math.round(day.l)}g{trackFiber ? ' · F ' + (day.fi != null ? Math.round(day.fi) + 'g' : '–') : ''}{#if day.deficit !== null}{' · '}<span style="font-weight:600;color:{day.neutre ? 'var(--c-blue)' : (day.deficit >= 0 ? 'var(--c-green)' : 'var(--c-red)')}">{day.neutre ? 'neutre' : (day.deficit >= 0 ? 'déficit −' + day.deficit.toLocaleString('fr') : 'surplus +' + Math.abs(day.deficit).toLocaleString('fr'))}</span>{#if !day.neutre && day.gFat !== null}<span class="grams-detail"><span style="color:{day.gFat > 0 ? 'var(--c-red)' : 'var(--c-green)'}">{day.gFat < 0 ? '−' : day.gFat > 0 ? '+' : ''}{Math.abs(day.gFat)}g gras</span></span>{/if}{/if}</div>
       {/if}
     </summary>
     <div class="hist-foods">
@@ -760,6 +760,7 @@
 .grams-detail { display:block; margin-top:2px; font-weight:600; }
 .hist-summary::-webkit-details-marker { display:none; }
 .hist-date { flex:1; font-size:13px; font-weight:500; color:var(--c-text); text-transform:capitalize; }
+.hist-eur { color:var(--c-text2); font-weight:600; text-transform:none; }
 .hist-kcal { font-size:13px; font-weight:600; flex-shrink:0; }
 .hist-cible { font-size:11px; color:var(--c-text3); flex-shrink:0; }
 .hist-foods { padding:0 14px 12px; display:flex; flex-direction:column; gap:0; border-top:0.5px solid var(--c-border); }
